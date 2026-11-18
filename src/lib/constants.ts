@@ -5,6 +5,7 @@ export const NAV: { href: string; label: string; roles: Role[] }[] = [
   { href: "/upload", label: "Upload", roles: ["uploader"] },
   { href: "/triage", label: "Triage", roles: ["approver"] },
   { href: "/review", label: "Review", roles: ["approver"] },
+  { href: "/rework", label: "Sent back", roles: ["approver"] },
   { href: "/library", label: "Library", roles: ["approver"] },
   { href: "/routing", label: "Routing", roles: ["approver"] },
   { href: "/dashboard", label: "Dashboard", roles: ["approver"] },

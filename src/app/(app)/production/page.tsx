@@ -1,7 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { invoke, openAsset, uploadToR2 } from "@/lib/api";
+import { invoke, uploadToR2 } from "@/lib/api";
 import { useLiveData } from "@/lib/hooks";
 import { Badge, batchLabel, btn, Card, Empty, input, Msg, PageHeader, R2Image } from "@/components/ui";
 import { REJECT_REASONS } from "@/lib/constants";
@@ -95,6 +95,8 @@ export default function ProductionPage() {
         </Card>
       )}
 
+      <SummaryCards shots={shots} filter={filter} onFilter={setFilter} />
+
       <div className="mb-4 flex gap-2 border-b border-stone-200">
         {(Object.keys(THEME) as ShotType[]).map((t) => (
           <button key={t} onClick={() => setTab(t)}
@@ -135,19 +137,30 @@ export default function ProductionPage() {
         <Card className="overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead className="bg-stone-50 text-left text-stone-500">
-              <tr><th className="p-2">Batch</th><th>SKU</th><th>Status</th><th>Ver.</th><th>Latest feedback</th><th /></tr>
+              <tr><th className="p-2">Batch</th><th>SKU</th><th>Preview</th><th>Status</th><th>Ver.</th><th>Latest feedback</th><th /></tr>
             </thead>
             <tbody>
               {rows.map((s) => {
                 const last = [...s.shot_versions].sort((a: any, b: any) => b.version_no - a.version_no)[0];
                 // images the reviewer sent back, newest first (the "not selected" ones are not feedback)
+                // what to show as the preview: the approved image, else the latest upload
+                const shown = s.shot_versions.find((v: any) => v.review_status === "approved") ?? last;
                 const rejected = s.shot_versions
                   .filter((v: any) => v.review_status === "rejected" && !String(v.reject_comment ?? "").startsWith("Not selected"))
                   .sort((a: any, b: any) => b.version_no - a.version_no).slice(0, 4);
                 return (
                   <tr key={s.id} className="border-t border-stone-100">
                     <td className="p-2">{batchLabel(s.skus.batches)}</td>
-                    <td className="font-medium">{s.skus.sku_code}</td>
+                    <td className="font-medium">
+                      <a href={`/shots/${s.id}`} target="_blank" rel="noopener noreferrer" className="hover:text-maroon-700 hover:underline">{s.skus.sku_code}</a>
+                    </td>
+                    <td className="py-2">
+                      {shown?.assets ? (
+                        <a href={`/shots/${s.id}`} target="_blank" rel="noopener noreferrer" title="Open details" className="block w-fit overflow-hidden rounded border border-stone-200">
+                          <R2Image objectKey={shown.assets.object_key} className="h-16 w-16 bg-stone-100" />
+                        </a>
+                      ) : <span className="text-stone-400">—</span>}
+                    </td>
                     <td><Badge value={s.status} /></td>
                     <td>{s.current_version || "—"}</td>
                     <td className="py-2">
@@ -155,10 +168,10 @@ export default function ProductionPage() {
                         <ul className="space-y-1.5">
                           {rejected.map((r: any) => (
                             <li key={r.version_no} className="flex items-center gap-2">
-                              <button type="button" title="Open full size" className="shrink-0 overflow-hidden rounded border border-red-200"
-                                onClick={() => r.assets && openAsset(r.assets.object_key)}>
+                              <a href={`/shots/${s.id}`} target="_blank" rel="noopener noreferrer" title="Open the thread and reply"
+                                className="shrink-0 overflow-hidden rounded border border-red-200">
                                 <R2Image objectKey={r.assets?.object_key} className="h-12 w-12 bg-stone-100" />
-                              </button>
+                              </a>
                               <span className="text-red-700"><b>v{r.version_no}</b> · {reason(r.reject_reason)}{r.reject_comment ? `: ${r.reject_comment}` : ""}</span>
                             </li>
                           ))}
@@ -231,6 +244,47 @@ function VariationsPanel({ shots, busy, onSend }: { shots: any[]; busy: string |
           </>
         )}
       </Card>
+    </div>
+  );
+}
+
+/** At-a-glance counters for the creator. Clicking a card filters the list below to that stage. */
+function SummaryCards({ shots, filter, onFilter }: { shots: any[]; filter: Filter; onFilter: (f: Filter) => void }) {
+  const todo = shots.filter((s) => s.status === "in_production");
+  const rework = todo.filter((s) => s.shot_versions.some((v: any) => v.review_status === "rejected")).length;
+  const review = shots.filter((s) => s.status === "submitted" || s.status === "in_review").length;
+  const done = shots.filter((s) => s.status === "approved" || s.status === "done").length;
+  const total = shots.length;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+
+  const cards: { key: Filter | null; label: string; n: number; sub?: string; tone: string }[] = [
+    { key: null, label: "Assigned to you", n: total, sub: "mood + model shots", tone: "border-maroon-600 bg-maroon-50 text-maroon-800" },
+    { key: "todo", label: "To do", n: todo.length, sub: rework ? `${rework} sent back for rework` : "nothing sent back", tone: "border-amber-500 bg-amber-50 text-amber-800" },
+    { key: "review", label: "In review", n: review, sub: "waiting on the reviewer", tone: "border-violet-500 bg-violet-50 text-violet-800" },
+    { key: "done", label: "Approved", n: done, sub: "approved or complete", tone: "border-emerald-500 bg-emerald-50 text-emerald-800" },
+  ];
+
+  return (
+    <div className="mb-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {cards.map((c) => {
+          const Tag = c.key ? "button" : "div";
+          return (
+            <Tag key={c.label} {...(c.key ? { onClick: () => onFilter(c.key!) } : {})}
+              className={`rounded-xl border-l-4 p-4 text-left shadow-card ${c.tone} ${c.key && filter === c.key ? "ring-2 ring-maroon-300" : ""} ${c.key ? "transition hover:brightness-95" : ""}`}>
+              <p className="text-xs font-medium uppercase tracking-wider opacity-80">{c.label}</p>
+              <p className="mt-1 font-display text-4xl font-semibold leading-none">{c.n}</p>
+              <p className="mt-1.5 text-xs opacity-80">{c.sub}</p>
+            </Tag>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex items-center gap-3 text-xs text-stone-600">
+        <div className="h-2 flex-1 overflow-hidden rounded-full bg-stone-200">
+          <div className="h-2 rounded-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
+        </div>
+        <span>{done} of {total} approved · {pct}%</span>
+      </div>
     </div>
   );
 }

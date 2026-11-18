@@ -45,7 +45,7 @@ export default function ReviewPage() {
   const { loading, error: loadError, reload } = useLiveData(async () => {
     const { data, error } = await supabaseBrowser()
       .from("shots")
-      .select("id, shot_type, current_version, skus(sku_code, batches(batch_no, name)), profiles:creator_id(full_name, email), shot_versions(id, version_no, review_status, reject_reason, reject_comment, uploaded_at, assets(object_key, file_name))")
+      .select("id, shot_type, current_version, skus(sku_code, batches(batch_no, name)), profiles:creator_id(full_name, email), shot_versions(id, version_no, review_status, reject_reason, reject_comment, uploaded_at, assets(object_key, file_name)), shot_comments(body, created_at, commenter:author_id(full_name, email))")
       .eq("status", "in_review").order("created_at");
     if (error) throw error;
     setShots(data ?? []);
@@ -157,6 +157,21 @@ export default function ReviewPage() {
       {/* action bar */}
       <footer className="border-t border-stone-200 bg-white px-4 py-3 text-sm">
         {msg && <p className="mb-2 rounded-md bg-red-50 px-3 py-1.5 text-red-800">{msg}</p>}
+        {(() => {
+          const last = [...(cur.shot_comments ?? [])].sort((a: any, b: any) => +new Date(b.created_at) - +new Date(a.created_at))[0];
+          return (
+            <p className="mb-2 flex flex-wrap items-center gap-x-2 text-xs text-stone-600">
+              {last && (
+                <span className="max-w-full truncate rounded bg-stone-100 px-2 py-1">
+                  💬 <b>{last.commenter?.full_name || last.commenter?.email}</b>: {last.body.length > 120 ? `${last.body.slice(0, 120)}…` : last.body}
+                </span>
+              )}
+              <a href={`/shots/${cur.id}`} target="_blank" rel="noopener noreferrer" className="font-medium text-maroon-700 underline">
+                {last ? "Open full thread ↗" : "Open shot page ↗"}
+              </a>
+            </p>
+          );
+        })()}
         {past.length > 0 && (
           <p className="mb-2 text-xs text-stone-500">
             Earlier: {past.slice(0, 3).map((p: any) => `v${p.version_no} ${p.review_status}${p.reject_reason ? ` (${reasonLabel(p.reject_reason)}${p.reject_comment ? `: ${p.reject_comment}` : ""})` : ""}`).join(" · ")}
