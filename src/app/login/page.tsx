@@ -4,23 +4,33 @@ import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { btn, btnGhost, input, Msg } from "@/components/ui";
 
+// Admin and approver are deliberately absent: only an existing admin can grant them (the database enforces this).
+const SIGNUP_ROLES = [
+  { value: "uploader", label: "SKU uploader: uploads the SKU list" },
+  { value: "creator", label: "Creator: produces mood / model images" },
+  { value: "pdp_uploader", label: "PDP team: receives PDP images" },
+  { value: "performance", label: "Performance team: receives campaign images" },
+];
+
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<"in" | "up">("in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [role, setRole] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (mode === "up" && !role) return setError("Please choose your role.");
     setBusy(true); setError(null); setInfo(null);
     const sb = supabaseBrowser();
     const { data, error } = mode === "in"
       ? await sb.auth.signInWithPassword({ email, password })
-      : await sb.auth.signUp({ email, password, options: { data: { full_name: name } } });
+      : await sb.auth.signUp({ email, password, options: { data: { full_name: name, requested_role: role } } });
     setBusy(false);
     if (error) return setError(error.message);
     if (mode === "up" && !data.session) return setInfo("Check your email to confirm your account, then sign in.");
@@ -74,6 +84,12 @@ export default function LoginPage() {
           <Msg error={error} ok={info} />
           <form onSubmit={submit} className="flex flex-col gap-3.5">
             {mode === "up" && <input className={`${input} py-2.5`} placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} />}
+            {mode === "up" && (
+              <select className={`${input} py-2.5 ${role ? "" : "text-stone-400"}`} required value={role} onChange={(e) => setRole(e.target.value)}>
+                <option value="" disabled>Select your role…</option>
+                {SIGNUP_ROLES.map((r) => <option key={r.value} value={r.value} className="text-stone-900">{r.label}</option>)}
+              </select>
+            )}
             <input className={`${input} py-2.5`} type="email" required placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
             <input className={`${input} py-2.5`} type="password" required minLength={6} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
             <button className={`${btn} mt-1 py-2.5 text-[0.95rem]`} disabled={busy}>{busy ? "Please wait…" : mode === "in" ? "Sign in" : "Sign up"}</button>
