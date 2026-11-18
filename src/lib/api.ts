@@ -29,12 +29,36 @@ export async function presignGet(key: string): Promise<string> {
   return url;
 }
 
-/** Direct browser -> R2 upload; image bytes never touch Supabase. */
+const BLOCK_FLAG = "r2-direct-blocked";
+const directBlocked = () => { try { return sessionStorage.getItem(BLOCK_FLAG) === "1"; } catch { return false; } };
+const markBlocked = () => { try { sessionStorage.setItem(BLOCK_FLAG, "1"); } catch { /* ignore */ } };
+
+/** Same-site URL that serves an R2 image through this app (for networks that block direct R2 access). */
+export const proxyUrl = (key: string, name?: string) =>
+  `/api/r2/get?key=${encodeURIComponent(key)}${name ? `&name=${encodeURIComponent(name)}` : ""}`;
+
+/**
+ * Browser -> R2 upload (image bytes never touch Supabase). Tries the direct presigned PUT first; if the network
+ * blocks it ("Failed to fetch" / CORS), it falls back to posting the file to this site, which uploads it for you.
+ */
 export async function uploadToR2(key: string, file: File) {
   const contentType = file.type || "image/jpeg";
-  const { url } = await invoke<{ url: string }>("presign", { action: "put", key, contentType });
-  const res = await fetch(url, { method: "PUT", body: file, headers: { "Content-Type": contentType } });
-  if (!res.ok) throw new Error(`upload of ${file.name} failed (${res.status})`);
+  if (!directBlocked()) {
+    try {
+      const { url } = await invoke<{ url: string }>("presign", { action: "put", key, contentType });
+      const res = await fetch(url, { method: "PUT", body: file, headers: { "Content-Type": contentType } });
+      if (!res.ok) throw new Error(`upload of ${file.name} failed (${res.status})`);
+      return;
+    } catch (e) {
+      if (!(e instanceof TypeError)) throw e; // a real server answer: don't retry
+      markBlocked();                          // network-level failure: use the fallback from now on
+    }
+  }
+  const res = await fetch(`/api/r2/upload?key=${encodeURIComponent(key)}`, { method: "POST", body: file, headers: { "Content-Type": contentType } });
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error(j.error ?? `upload of ${file.name} failed (${res.status})`);
+  }
 }
 
 export function saveBlob(blob: Blob, filename: string) {
@@ -45,16 +69,15 @@ export function saveBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
 }
 
-/** Open the full-size image in a new tab (short-lived presigned URL). */
+/** Open the full-size image in a new tab (served through this site, so it works on restricted networks). */
 export async function openAsset(key: string) {
-  window.open(await presignGet(key), "_blank", "noopener");
+  window.open(proxyUrl(key), "_blank", "noopener");
 }
 
-/** Save the image under `filename` (presigned URL with an attachment Content-Disposition). */
+/** Save the image under `filename`. */
 export async function downloadAsset(key: string, filename: string) {
-  const { url } = await invoke<{ url: string }>("presign", { action: "get", key, download_name: filename });
   const a = document.createElement("a");
-  a.href = url;
+  a.href = proxyUrl(key, filename);
   a.download = filename;
   document.body.appendChild(a);
   a.click();

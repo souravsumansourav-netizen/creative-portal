@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, type ReactNode } from "react";
-import { presignGet } from "@/lib/api";
+import { presignGet, proxyUrl } from "@/lib/api";
 
 export const btn =
   "inline-flex items-center justify-center rounded-md bg-maroon-700 px-3.5 py-2 text-sm font-medium tracking-wide text-white shadow-sm transition-colors hover:bg-maroon-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-maroon-300 disabled:cursor-not-allowed disabled:opacity-40";
@@ -59,20 +59,23 @@ export const Empty = ({ children }: { children: ReactNode }) => (
   <p className="rounded-md border border-dashed border-stone-300 p-6 text-center text-sm text-stone-500">{children}</p>
 );
 
-/** Image served from private R2 through a short-lived presigned GET. */
+/** Image from private R2: direct presigned URL first; if the network blocks it, the same image via this site. */
 export function R2Image({ objectKey, className = "" }: { objectKey?: string | null; className?: string }) {
   const [src, setSrc] = useState<string | null>(null);
   const [err, setErr] = useState(false);
+  const [viaProxy, setViaProxy] = useState(false);
   useEffect(() => {
+    setSrc(null); setErr(false); setViaProxy(false);
     if (!objectKey) return;
     let live = true;
-    presignGet(objectKey).then((u) => live && setSrc(u)).catch(() => live && setErr(true));
+    presignGet(objectKey).then((u) => live && setSrc(u)).catch(() => live && (setViaProxy(true), setSrc(proxyUrl(objectKey))));
     return () => { live = false; };
   }, [objectKey]);
   if (!objectKey || err) return <div className={`flex items-center justify-center bg-stone-100 text-xs text-stone-400 ${className}`}>no image</div>;
   if (!src) return <div className={`animate-pulse bg-stone-100 ${className}`} />;
   // eslint-disable-next-line @next/next/no-img-element
-  return <img src={src} alt="" className={`object-contain ${className}`} />;
+  return <img src={src} alt="" className={`object-contain ${className}`}
+    onError={() => { if (!viaProxy && objectKey) { setViaProxy(true); setSrc(proxyUrl(objectKey)); } else setErr(true); }} />;
 }
 
 export const batchLabel = (b?: { batch_no: number; name?: string | null } | null) =>
