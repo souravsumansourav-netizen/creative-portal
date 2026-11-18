@@ -83,3 +83,20 @@ export async function downloadAsset(key: string, filename: string) {
   a.click();
   a.remove();
 }
+
+/**
+ * Post the creator's comment for an upload she just made. It is tagged to the new version(s): `count` consecutive
+ * versions were created, so the comment points at the first and records how many.
+ */
+export async function postResubmitComment(shotId: string, body: string, count: number) {
+  const sb = supabaseBrowser();
+  const { data: { user } } = await sb.auth.getUser();
+  const { data: nv } = await sb.from("shot_versions").select("id, version_no").eq("shot_id", shotId)
+    .order("version_no", { ascending: false }).limit(Math.max(1, count));
+  const first = nv?.[nv.length - 1];
+  const { error } = await sb.from("shot_comments").insert({
+    shot_id: shotId, author_id: user!.id, body,
+    version_id: first?.id ?? null, tag: first ? "resubmitted" : null, version_count: nv?.length ?? 1,
+  });
+  if (error) throw new Error(error.message);
+}

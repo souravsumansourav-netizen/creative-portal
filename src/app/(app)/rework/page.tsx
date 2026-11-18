@@ -36,7 +36,7 @@ export default function SentBackPage() {
 
   return (
     <>
-      <PageHeader title="Sent back" sub={`${rows.length} shot(s) waiting on the creator${replies ? ` · ${replies} with a new reply` : ""}`} />
+      <PageHeader title="Sent back" sub={`${rows.length} shot(s) waiting on the creator${replies ? ` · ${replies} with a new comment` : ""}`} />
       <Msg error={loadError} />
       {loading ? <p className="text-sm text-stone-500">Loading…</p> : !rows.length ? <Empty>Nothing is waiting on a creator.</Empty> : (
         <div className="space-y-3">
@@ -48,7 +48,7 @@ export default function SentBackPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <b className="text-base">{r.skus.sku_code}</b>
                     <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs">{r.shot_type}</span>
-                    {r.newReply && <span className="rounded-full bg-maroon-700 px-2 py-0.5 text-xs font-medium text-white">New reply</span>}
+                    {r.newReply && <span className="rounded-full bg-maroon-700 px-2 py-0.5 text-xs font-medium text-white">New comment</span>}
                     <span className="text-stone-500">{batchLabel(r.skus.batches)} · {r.creator?.full_name || r.creator?.email}</span>
                   </div>
                   <p className="mt-1 text-red-700">

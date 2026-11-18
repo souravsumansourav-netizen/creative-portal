@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { use, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { invoke, rpc, uploadToR2 } from "@/lib/api";
+import { invoke, postResubmitComment, rpc, uploadToR2 } from "@/lib/api";
 import { useLiveData } from "@/lib/hooks";
 import { Badge, batchLabel, btn, btnDanger, btnGhost, Card, Empty, input, Msg, R2Image } from "@/components/ui";
 import { RefImage } from "@/components/RefImage";
@@ -29,7 +29,7 @@ export default function ShotPage({ params }: { params: Promise<{ id: string }> }
   const [reason, setReason] = useState("color_gold_tone");
   const [rejectText, setRejectText] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
-  const [picked, setPicked] = useState<string>("");
+  const [picked, setPicked] = useState<string[]>([]);
 
   const { loading, error: loadError, reload } = useLiveData(async () => {
     const sb = supabaseBrowser();
@@ -39,7 +39,7 @@ export default function ShotPage({ params }: { params: Promise<{ id: string }> }
       sb.from("shots")
         .select("id, shot_type, status, current_version, skus(sku_code, batches(batch_no, name)), creator:creator_id(full_name, email), shot_versions(id, version_no, review_status, reject_reason, reject_comment, uploaded_at, reviewed_at, uploader:uploaded_by(full_name, email), reviewer:reviewed_by(full_name, email), assets(object_key, file_name))")
         .eq("id", id).maybeSingle(),
-      sb.from("shot_comments").select("id, body, created_at, author:author_id(id, full_name, email, role)").eq("shot_id", id).order("created_at"),
+      sb.from("shot_comments").select("id, body, created_at, version_id, tag, version_count, author:author_id(id, full_name, email, role)").eq("shot_id", id).order("created_at"),
     ]);
     if (s.error) throw s.error;
     setMe({ id: user!.id, role: prof.data?.role ?? "" });
@@ -57,7 +57,9 @@ export default function ShotPage({ params }: { params: Promise<{ id: string }> }
   const sel = versions.find((v) => v.version_no === selNo);
   const sku: string = shot.skus.sku_code;
   const canUpload = shot.status === "in_production" && (me?.role === "creator" || me?.role === "admin");
-  const canComment = isReviewer || shot.status !== "done";
+  // reviewers: the first response must be approve / reject; free comments open up once a decision exists
+  const hasDecision = versions.some((v) => v.review_status !== "pending");
+  const canComment = isReviewer ? hasDecision : shot.status !== "done";
   const canReview = isReviewer && shot.status === "in_review" && sel?.review_status === "pending";
   const needsCampaign = dest === "performance" || dest === "both";
 
@@ -65,29 +67,37 @@ export default function ShotPage({ params }: { params: Promise<{ id: string }> }
   const events: { t: string; kind: "upload" | "review" | "comment"; v?: any; c?: any }[] = [];
   for (const v of versions) {
     events.push({ t: v.uploaded_at, kind: "upload", v });
-    if (v.reviewed_at) events.push({ t: v.reviewed_at, kind: "review", v });
+    const hasThreadComment = comments.some((c) => c.version_id === v.id && c.tag === "rejected");
+    // a rejection with a thread comment is shown as that comment (tagged to the version); other decisions get a card
+    if (v.reviewed_at && !hasThreadComment) events.push({ t: v.reviewed_at, kind: "review", v });
   }
   for (const c of comments) events.push({ t: c.created_at, kind: "comment", c });
   events.sort((a, b) => +new Date(a.t) - +new Date(b.t));
 
   async function send() {
-    const file = fileRef.current?.files?.[0];
+    const files = [...(fileRef.current?.files ?? [])];
     const body = text.trim();
-    if (!body && !file) return;
+    if (!body && !files.length) return;
     setBusy(true); setMsg({});
     try {
-      if (file) {
+      let uploaded = 0;
+      if (files.length) {
         const stagingId = crypto.randomUUID();
-        await uploadToR2(`staging/${me!.id}/${stagingId}/${file.name}`, file);
-        await invoke("validate-upload", { staging_id: stagingId, shot_type: shot.shot_type, shot_id: shot.id });
+        for (const f of files) await uploadToR2(`staging/${me!.id}/${stagingId}/${f.name}`, f);
+        // several images = variations (no name checks); one image = the next version
+        const r = await invoke("validate-upload", { staging_id: stagingId, shot_type: shot.shot_type, shot_id: shot.id, variations: files.length > 1 });
+        uploaded = r.images ?? r.submitted ?? files.length;
       }
       if (body) {
-        const { error } = await supabaseBrowser().from("shot_comments").insert({ shot_id: shot.id, author_id: me!.id, body });
-        if (error) throw new Error(error.message);
+        if (uploaded) await postResubmitComment(shot.id, body, uploaded);
+        else {
+          const { error } = await supabaseBrowser().from("shot_comments").insert({ shot_id: shot.id, author_id: me!.id, body });
+          if (error) throw new Error(error.message);
+        }
       }
-      setText(""); setVer(null); setPicked("");
+      setText(""); setVer(null); setPicked([]);
       if (fileRef.current) fileRef.current.value = "";
-      setMsg({ ok: file ? "New version uploaded and sent for review." : "Comment posted." });
+      setMsg({ ok: uploaded ? `${uploaded > 1 ? `${uploaded} variations` : "New version"} uploaded and sent for review.` : "Comment posted." });
       reload();
     } catch (e) { setMsg({ error: (e as Error).message }); }
     setBusy(false);
@@ -198,30 +208,44 @@ export default function ShotPage({ params }: { params: Promise<{ id: string }> }
                 );
               }
               const c = e.c; const mine = c.author?.id === me?.id;
+              const tv = versions.find((v) => v.id === c.version_id);
+              const rejected = c.tag === "rejected";
               return (
-                <div key={i} className={`rounded-md px-3 py-2 ${mine ? "bg-maroon-50" : "bg-stone-100"}`}>
+                <div key={i} className={`rounded-md px-3 py-2 ${rejected ? "border-l-4 border-red-400 bg-red-50" : mine ? "bg-maroon-50" : "bg-stone-100"}`}>
                   <p className="text-xs text-stone-500">{when(e.t)} · <b>{who(c.author)}</b> <span className="capitalize">({(c.author?.role ?? "").replace("_", " ")})</span></p>
-                  <p className="mt-0.5 whitespace-pre-wrap">{c.body}</p>
+                  {tv && (
+                    <button onClick={() => setVer(tv.version_no)}
+                      className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${rejected ? "bg-red-100 text-red-800" : "bg-maroon-100 text-maroon-800"}`}>
+                      {rejected ? `Rejected v${tv.version_no}${tv.reject_reason ? ` · ${reasonLabel(tv.reject_reason)}` : ""}` : (c.version_count ?? 1) > 1 ? `With new variations v${tv.version_no}–v${tv.version_no + c.version_count - 1}` : `With new version v${tv.version_no}`}
+                    </button>
+                  )}
+                  <p className="mt-1 whitespace-pre-wrap">{c.body}</p>
                 </div>
               );
             })}
           </div>
 
+          {isReviewer && !hasDecision && (
+            <p className="mt-4 rounded-md bg-stone-50 px-3 py-2 text-xs text-stone-600">
+              Your first response on this shot has to be <b>Approve</b> or <b>Reject</b> (use the buttons under the images). Once you have decided, you can reply here freely.
+            </p>
+          )}
           {canComment && (
             <div className="mt-4 border-t border-stone-100 pt-3">
-              <textarea className={`${input} w-full`} rows={3} placeholder={canUpload ? "Reply to the reviewer… (optionally attach a new version)" : "Write a comment…"} value={text} onChange={(e) => setText(e.target.value)} />
+              <textarea className={`${input} w-full`} rows={3} placeholder={canUpload ? "Reply to the reviewer… (optionally attach new version(s))" : isReviewer ? "Reply to the creator…" : "Write a comment…"} value={text} onChange={(e) => setText(e.target.value)} />
               <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                 {canUpload ? (
                   <label className={`${btnGhost} cursor-pointer`}>
-                    {picked ? `📎 ${picked.length > 22 ? picked.slice(0, 20) + "…" : picked}` : "Attach new version"}
-                    <input ref={fileRef} type="file" accept="image/jpeg" className="hidden" onChange={(e) => setPicked(e.target.files?.[0]?.name ?? "")} />
+                    {picked.length ? `📎 ${picked.length === 1 ? (picked[0].length > 20 ? picked[0].slice(0, 18) + "…" : picked[0]) : `${picked.length} images (variations)`}` : "Attach image(s)"}
+                    <input ref={fileRef} type="file" accept="image/jpeg" multiple className="hidden"
+                      onChange={(e) => setPicked([...(e.target.files ?? [])].map((f) => f.name))} />
                   </label>
                 ) : (
                   !isReviewer && <span className="text-xs text-stone-500">You can upload a new version once the reviewer sends it back.</span>
                 )}
                 <span className="flex-1" />
-                <button className={btn} disabled={busy || (!text.trim() && !picked)} onClick={send}>
-                  {busy ? "Sending…" : picked ? "Send & submit new version" : "Post comment"}
+                <button className={btn} disabled={busy || (!text.trim() && !picked.length)} onClick={send}>
+                  {busy ? "Sending…" : picked.length > 1 ? "Send & submit variations" : picked.length ? "Send & submit new version" : "Post comment"}
                 </button>
               </div>
             </div>

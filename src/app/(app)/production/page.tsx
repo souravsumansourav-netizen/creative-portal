@@ -1,7 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { invoke, uploadToR2 } from "@/lib/api";
+import { invoke, postResubmitComment, uploadToR2 } from "@/lib/api";
 import { useLiveData } from "@/lib/hooks";
 import { Badge, batchLabel, btn, Card, Empty, input, Msg, PageHeader, R2Image } from "@/components/ui";
 import { REJECT_REASONS } from "@/lib/constants";
@@ -50,7 +50,7 @@ export default function ProductionPage() {
   }, ["shots", "shot_versions"]);
 
   /** Upload files straight to R2 (staging), then ask the function to validate + submit them. */
-  async function send(files: File[], shotType: ShotType, shotId?: string, variations = false) {
+  async function send(files: File[], shotType: ShotType, shotId?: string, variations = false, comment?: string) {
     if (!files.length) return;
     setBusy(shotId ?? "bulk"); setMsg({}); setErrors([]);
     try {
@@ -62,6 +62,7 @@ export default function ProductionPage() {
         for (let f = queue.shift(); f; f = queue.shift()) await uploadToR2(prefix + f.name, f);
       }));
       const r = await invoke("validate-upload", { staging_id: stagingId, shot_type: shotType, shot_id: shotId, variations });
+      if (comment?.trim() && shotId) await postResubmitComment(shotId, comment.trim(), r.images ?? files.length);
       setMsg({ ok: variations ? `Submitted ${r.images} variation${r.images === 1 ? "" : "s"} for review.` : `Submitted ${r.submitted} ${shotType} shot${r.submitted === 1 ? "" : "s"} for review.` });
       setErrors(r.errors ?? []);
       if (bulkRef.current) bulkRef.current.value = "";
@@ -111,7 +112,7 @@ export default function ProductionPage() {
       </div>
 
       {tab === "variations" ? (
-        <VariationsPanel shots={shots} busy={busy} onSend={(files, shot) => send(files, shot.shot_type, shot.id, true)} />
+        <VariationsPanel shots={shots} busy={busy} onSend={(files, shot, note) => send(files, shot.shot_type, shot.id, true, note)} />
       ) : (<>
       <Card className={`mb-4 flex flex-wrap items-center gap-3 text-sm ${theme.box}`}>
         <div className="mr-auto">
@@ -200,11 +201,12 @@ export default function ProductionPage() {
 }
 
 /** Variations: many images for one shot, no name checks. The reviewer picks the winner. */
-function VariationsPanel({ shots, busy, onSend }: { shots: any[]; busy: string | null; onSend: (files: File[], shot: any) => void }) {
+function VariationsPanel({ shots, busy, onSend }: { shots: any[]; busy: string | null; onSend: (files: File[], shot: any, note: string) => void }) {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<any | null>(null);
   const filesRef = useRef<HTMLInputElement>(null);
   const [picked, setPicked] = useState(0);
+  const [note, setNote] = useState("");
 
   const matches = shots
     .filter((s) => s.status === "in_production" && s.skus.sku_code.toLowerCase().includes(q.trim().toLowerCase()))
@@ -237,8 +239,9 @@ function VariationsPanel({ shots, busy, onSend }: { shots: any[]; busy: string |
             <p className="mb-3 text-sm">Uploading for <b>{sel.skus.sku_code}</b> · {sel.shot_type}. File names don&apos;t matter and there are no checks; the reviewer will choose one.</p>
             <input ref={filesRef} type="file" accept="image/jpeg" multiple className="mb-3 block text-sm" disabled={!!busy}
               onChange={(e) => setPicked(e.target.files?.length ?? 0)} />
+            <textarea className={`${input} mb-3 w-full`} rows={3} placeholder="Add a comment for the reviewer (optional): e.g. what differs between the variations" value={note} onChange={(e) => setNote(e.target.value)} />
             <button className={btn} disabled={!!busy || !picked}
-              onClick={() => { onSend([...(filesRef.current?.files ?? [])], sel); if (filesRef.current) filesRef.current.value = ""; setPicked(0); setSel(null); }}>
+              onClick={() => { onSend([...(filesRef.current?.files ?? [])], sel, note); if (filesRef.current) filesRef.current.value = ""; setPicked(0); setNote(""); setSel(null); }}>
               {busy === sel.id ? "Uploading…" : `Submit ${picked || ""} variation${picked === 1 ? "" : "s"} for review`}
             </button>
           </>
