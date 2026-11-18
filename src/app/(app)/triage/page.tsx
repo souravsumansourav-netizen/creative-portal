@@ -1,0 +1,180 @@
+"use client";
+import { useState } from "react";
+import { supabaseBrowser } from "@/lib/supabase/client";
+import { rpc } from "@/lib/api";
+import { useLiveData } from "@/lib/hooks";
+import { batchLabel, btn, btnGhost, Card, Empty, input, Msg, PageHeader } from "@/components/ui";
+import { RefImage } from "@/components/RefImage";
+
+type Row = { shoot: { mood: boolean; model: boolean }; batch_id: string; creator_id: string };
+
+export default function TriagePage() {
+  const [skus, setSkus] = useState<any[]>([]);
+  const [batches, setBatches] = useState<any[]>([]);
+  const [creators, setCreators] = useState<any[]>([]);
+  const [rows, setRows] = useState<Record<string, Row>>({});
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [msg, setMsg] = useState<{ error?: string; ok?: string }>({});
+  const [busy, setBusy] = useState(false);
+  // bulk-apply controls
+  const [bulkBatch, setBulkBatch] = useState("");
+  const [bulkCreator, setBulkCreator] = useState("");
+  const [preview, setPreview] = useState<number | null>(null); // index into skus
+
+  const { loading, error: loadError, reload } = useLiveData(async () => {
+    const sb = supabaseBrowser();
+    const [s, b, c] = await Promise.all([
+      sb.from("skus").select("id, sku_code, batch_id, created_at, uploads(file_name)").eq("triaged", false).order("created_at"),
+      sb.from("batches").select("*").order("batch_no"),
+      sb.from("profiles").select("id, full_name, email").eq("role", "creator"),
+    ]);
+    if (s.error) throw s.error;
+    setSkus(s.data ?? []); setBatches(b.data ?? []); setCreators(c.data ?? []);
+    setRows((prev) => {
+      const next = { ...prev };
+      for (const k of s.data ?? []) next[k.id] ??= { shoot: { mood: false, model: false }, batch_id: k.batch_id, creator_id: "" };
+      return next;
+    });
+  }, ["skus"]);
+
+  const patch = (ids: string[], p: Partial<Row> | ((r: Row) => Partial<Row>)) =>
+    setRows((prev) => {
+      const next = { ...prev };
+      for (const id of ids) next[id] = { ...next[id], ...(typeof p === "function" ? p(next[id]) : p) };
+      return next;
+    });
+
+  const selected = [...sel];
+  const toggle = (id: string) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const ready = skus.filter((k) => { const r = rows[k.id]; return r && (r.shoot.mood || r.shoot.model) && r.creator_id; });
+
+  async function newBatch() {
+    try {
+      const b = await rpc("create_batch", { p_name: null });
+      setBulkBatch(b.id); await reload();
+    } catch (e) { setMsg({ error: (e as Error).message }); }
+  }
+
+  async function confirm() {
+    setBusy(true); setMsg({});
+    try {
+      const items = ready.map((k) => ({
+        sku_id: k.id, batch_id: rows[k.id].batch_id, creator_id: rows[k.id].creator_id,
+        shot_types: (["mood", "model"] as const).filter((t) => rows[k.id].shoot[t]),
+      }));
+      const n = await rpc<number>("triage_skus", { p_items: items });
+      setMsg({ ok: `Triaged ${n} SKUs. Their batches are now locked.` });
+      setSel(new Set()); await reload();
+    } catch (e) { setMsg({ error: (e as Error).message }); }
+    setBusy(false);
+  }
+
+  const cName = (c: any) => c.full_name || c.email;
+
+  return (
+    <>
+      <PageHeader title="Triage" sub="Pick shot types, creator and batch per SKU. Confirming locks the SKU's batch permanently.">
+        <button className={btn} disabled={busy || !ready.length} onClick={confirm}>Confirm {ready.length} ready</button>
+      </PageHeader>
+      <Msg error={msg.error ?? loadError} ok={msg.ok} />
+
+      <Card className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+        <span className="font-medium">Bulk ({selected.length} selected):</span>
+        <button className={btnGhost} disabled={!selected.length} onClick={() => patch(selected, { shoot: { mood: true, model: false } })}>Mood</button>
+        <button className={btnGhost} disabled={!selected.length} onClick={() => patch(selected, { shoot: { mood: false, model: true } })}>Model</button>
+        <button className={btnGhost} disabled={!selected.length} onClick={() => patch(selected, { shoot: { mood: true, model: true } })}>Both</button>
+        <select className={input} value={bulkBatch} onChange={(e) => setBulkBatch(e.target.value)}>
+          <option value="">Batch…</option>
+          {batches.map((b) => <option key={b.id} value={b.id}>{batchLabel(b)}</option>)}
+        </select>
+        <button className={btnGhost} disabled={!selected.length || !bulkBatch} onClick={() => patch(selected, { batch_id: bulkBatch })}>Set batch</button>
+        <button className={btnGhost} onClick={newBatch}>+ New batch</button>
+        <select className={input} value={bulkCreator} onChange={(e) => setBulkCreator(e.target.value)}>
+          <option value="">Creator…</option>
+          {creators.map((c) => <option key={c.id} value={c.id}>{cName(c)}</option>)}
+        </select>
+        <button className={btnGhost} disabled={!selected.length || !bulkCreator} onClick={() => patch(selected, { creator_id: bulkCreator })}>Set creator</button>
+      </Card>
+
+      {loading ? <p className="text-sm text-stone-500">Loading…</p> : !skus.length ? <Empty>Nothing waiting for triage.</Empty> : (
+        <Card className="overflow-x-auto p-0">
+          <table className="w-full text-sm">
+            <thead className="bg-stone-50 text-left text-stone-500">
+              <tr>
+                <th className="p-2"><input type="checkbox" checked={sel.size === skus.length} onChange={(e) => setSel(e.target.checked ? new Set(skus.map((k) => k.id)) : new Set())} /></th>
+                <th>SKU</th><th>Preview</th><th>Upload</th><th>Mood</th><th>Model</th><th>Batch</th><th>Creator</th>
+              </tr>
+            </thead>
+            <tbody>
+              {skus.map((k) => {
+                const r = rows[k.id]; if (!r) return null;
+                return (
+                  <tr key={k.id} className="border-t border-stone-100">
+                    <td className="p-2"><input type="checkbox" checked={sel.has(k.id)} onChange={() => toggle(k.id)} /></td>
+                    <td className="font-medium">{k.sku_code}</td>
+                    <td className="py-2">
+                      <button type="button" title="Click to enlarge" onClick={() => setPreview(skus.indexOf(k))}>
+                        <RefImage sku={k.sku_code} className="h-28 w-28 rounded border border-stone-200" />
+                      </button>
+                    </td>
+                    <td className="text-stone-500">{k.uploads?.file_name}</td>
+                    <td><input type="checkbox" checked={r.shoot.mood} onChange={(e) => patch([k.id], { shoot: { ...r.shoot, mood: e.target.checked } })} /></td>
+                    <td><input type="checkbox" checked={r.shoot.model} onChange={(e) => patch([k.id], { shoot: { ...r.shoot, model: e.target.checked } })} /></td>
+                    <td>
+                      <select className={input} value={r.batch_id} onChange={(e) => patch([k.id], { batch_id: e.target.value })}>
+                        {batches.map((b) => <option key={b.id} value={b.id}>{batchLabel(b)}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <select className={input} value={r.creator_id} onChange={(e) => patch([k.id], { creator_id: e.target.value })}>
+                        <option value="">—</option>
+                        {creators.map((c) => <option key={c.id} value={c.id}>{cName(c)}</option>)}
+                      </select>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Card>
+      )}
+      {preview !== null && skus[preview] && (() => {
+        const k = skus[preview]; const r = rows[k.id];
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setPreview(null)}>
+            <div className="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-xl md:flex-row" onClick={(e) => e.stopPropagation()}>
+              <div className="flex min-h-0 flex-1 items-center justify-center bg-stone-100 p-2">
+                <RefImage sku={k.sku_code} lazy={false} className="h-[70vh] w-full" />
+              </div>
+              <div className="w-full space-y-4 p-5 text-sm md:w-80">
+                <div className="flex items-start justify-between">
+                  <div><p className="text-base font-semibold">{k.sku_code}</p><p className="text-stone-500">{preview + 1} of {skus.length}</p></div>
+                  <button className={btnGhost} onClick={() => setPreview(null)}>✕</button>
+                </div>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={r.shoot.mood} onChange={(e) => patch([k.id], { shoot: { ...r.shoot, mood: e.target.checked } })} /> Mood shot</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={r.shoot.model} onChange={(e) => patch([k.id], { shoot: { ...r.shoot, model: e.target.checked } })} /> Model shot</label>
+                </div>
+                <label className="block">Batch
+                  <select className={`${input} mt-1 w-full`} value={r.batch_id} onChange={(e) => patch([k.id], { batch_id: e.target.value })}>
+                    {batches.map((b) => <option key={b.id} value={b.id}>{batchLabel(b)}</option>)}
+                  </select>
+                </label>
+                <label className="block">Creator
+                  <select className={`${input} mt-1 w-full`} value={r.creator_id} onChange={(e) => patch([k.id], { creator_id: e.target.value })}>
+                    <option value="">—</option>
+                    {creators.map((c) => <option key={c.id} value={c.id}>{cName(c)}</option>)}
+                  </select>
+                </label>
+                <div className="flex gap-2">
+                  <button className={btnGhost} disabled={preview <= 0} onClick={() => setPreview(preview - 1)}>← Prev</button>
+                  <button className={btn} disabled={preview >= skus.length - 1} onClick={() => setPreview(preview + 1)}>Next →</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </>
+  );
+}

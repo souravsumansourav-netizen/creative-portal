@@ -1,0 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body { @apply bg-ivory font-sans text-stone-900 antialiased; }
+  h1, h2, h3 { font-family: var(--font-display), Georgia, serif; @apply text-maroon-900; letter-spacing: 0.005em; }
+  h2 { @apply text-xl; }
+  h3 { @apply text-lg; }
+  ::selection { @apply bg-maroon-200 text-maroon-900; }
+  input[type="checkbox"] { @apply accent-maroon-700; }
+}
