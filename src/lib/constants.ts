@@ -13,6 +13,7 @@ export const NAV: { href: string; label: string; roles: Role[] }[] = [
   { href: "/output/pdp", label: "PDP", roles: ["pdp_uploader"] },
   { href: "/output/performance", label: "Performance", roles: ["performance"] },
   { href: "/admin/batches", label: "Batches", roles: [] },
+  { href: "/admin/rename", label: "Rename images", roles: [] },
   { href: "/admin/users", label: "Users", roles: [] },
 ];
 
