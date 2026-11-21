@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Inbox, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { presignGet, proxyUrl } from "@/lib/api";
@@ -70,6 +70,11 @@ export function R2Image({ objectKey, className = "" }: { objectKey?: string | nu
   const [err, setErr] = useState(false);
   const [viaProxy, setViaProxy] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const img = useRef<HTMLImageElement>(null);
+  useEffect(() => {
+    const el = img.current;
+    if (el && el.complete && el.naturalWidth > 0) setLoaded(true);
+  }, [src]);
   useEffect(() => {
     setSrc(null); setErr(false); setViaProxy(false); setLoaded(false);
     if (!objectKey) return;
@@ -79,15 +84,16 @@ export function R2Image({ objectKey, className = "" }: { objectKey?: string | nu
   }, [objectKey]);
   if (!objectKey || err) return <div className={`flex items-center justify-center bg-stone-100 text-xs text-stone-400 ${className}`}>no image</div>;
   return (
-    <>
-      {!loaded && <div className={`skeleton ${className}`} />}
+    <div className={`relative overflow-hidden ${className}`}>
+      {!loaded && <div className="skeleton absolute inset-0" />}
       {src && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt="" className={loaded ? `anim-fade object-contain ${className}` : "hidden"}
+        <img ref={img} src={src} alt=""
+          className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
           onLoad={() => setLoaded(true)}
           onError={() => { if (!viaProxy && objectKey) { setViaProxy(true); setSrc(proxyUrl(objectKey)); } else setErr(true); }} />
       )}
-    </>
+    </div>
   );
 }
 
