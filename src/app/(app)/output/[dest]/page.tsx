@@ -6,6 +6,8 @@ import { downloadAsset, invoke, rpc, saveBlob } from "@/lib/api";
 import { useLiveData } from "@/lib/hooks";
 import { Badge, batchLabel, btn, btnGhost, Card, Empty, Msg, PageHeader, R2Image } from "@/components/ui";
 import { RefImage } from "@/components/RefImage";
+import { TableSkeleton } from "@/components/controls";
+import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
 
 /** Approved image for a routing: the approved version, else the latest. */
 const approvedKey = (r: any): string | undefined => {
@@ -58,8 +60,8 @@ export default function OutputPage({ params }: { params: Promise<{ dest: string 
     <>
       <PageHeader title={dest === "pdp" ? "PDP uploads" : "Performance uploads"} sub="Download a batch, upload it to the destination system, then mark items done." />
       <Msg error={msg.error ?? loadError} ok={msg.ok} />
-      {loading ? <p className="text-sm text-stone-500">Loading…</p> : !groups.size ? <Empty>Nothing routed here yet.</Empty> : (
-        <div className="space-y-5">
+      {loading ? <TableSkeleton /> : !groups.size ? <Empty hint="Approved shots appear here once they are sent to this team.">Nothing routed here yet</Empty> : (
+        <div className="stagger space-y-5">
           {[...groups.values()].map(({ batch, items }) => {
             const pending = items.filter((i) => i.status === "pending");
             const label = batchLabel(batch);
@@ -76,7 +78,7 @@ export default function OutputPage({ params }: { params: Promise<{ dest: string 
                   <thead className="text-left text-stone-500"><tr><th>Preview</th><th>SKU</th><th>Type</th>{dest === "performance" && <th>Campaign</th>}<th>Status</th><th /></tr></thead>
                   <tbody>
                     {items.map((r) => (
-                      <tr key={r.id} className="border-t border-stone-100">
+                      <tr key={r.id} className="border-t border-black/[0.05]">
                         <td className="py-2">
                           <button type="button" title="Click to enlarge" onClick={() => setPreview(r.id)}>
                             <R2Image objectKey={approvedKey(r)} className="h-24 w-24 rounded border border-stone-200" />
@@ -87,7 +89,7 @@ export default function OutputPage({ params }: { params: Promise<{ dest: string 
                         {dest === "performance" && <td>{r.campaign_name}</td>}
                         <td><Badge value={r.status} /></td>
                         <td className="space-x-2 whitespace-nowrap text-right">
-                          <button className={btnGhost} disabled={!approvedKey(r)} onClick={() => downloadAsset(approvedKey(r)!, fileName(r))}>Download</button>
+                          <button className={btnGhost} disabled={!approvedKey(r)} onClick={() => downloadAsset(approvedKey(r)!, fileName(r))}><Download size={15} /> Download</button>
                           {r.status === "pending" && <button className={btn} onClick={() => markDone([r.id])}>Mark done</button>}
                         </td>
                       </tr>
@@ -104,18 +106,18 @@ export default function OutputPage({ params }: { params: Promise<{ dest: string 
         if (!pr) return null;
         const pi = routings.findIndex((r) => r.id === pr.id);
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setPreview(null)}>
-            <div className="flex max-h-full w-full max-w-6xl flex-col overflow-hidden rounded-lg bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="scrim anim-fade fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setPreview(null)}>
+            <div className="flex max-h-full w-full max-w-6xl flex-col overflow-hidden rounded-2xl sheet anim-pop" onClick={(e) => e.stopPropagation()}>
               <div className="flex flex-wrap items-center gap-3 border-b border-stone-200 px-4 py-2 text-sm">
                 <b className="text-base">{pr.shots.skus.sku_code}</b>
                 <span className="rounded-full bg-stone-100 px-2 py-0.5">{pr.shots.shot_type}</span>
                 {dest === "performance" && pr.campaign_name && <span className="text-stone-500">Campaign: {pr.campaign_name}</span>}
                 <span className="text-stone-500">{pi + 1} of {routings.length}</span>
                 <span className="flex-1" />
-                <button className={btn} disabled={!approvedKey(pr)} onClick={() => downloadAsset(approvedKey(pr)!, fileName(pr))}>Download</button>
-                <button className={btnGhost} disabled={pi <= 0} onClick={() => setPreview(routings[pi - 1].id)}>←</button>
-                <button className={btnGhost} disabled={pi >= routings.length - 1} onClick={() => setPreview(routings[pi + 1].id)}>→</button>
-                <button className={btnGhost} onClick={() => setPreview(null)}>✕</button>
+                <button className={btn} disabled={!approvedKey(pr)} onClick={() => downloadAsset(approvedKey(pr)!, fileName(pr))}><Download size={15} /> Download</button>
+                <button className={btnGhost} disabled={pi <= 0} onClick={() => setPreview(routings[pi - 1].id)}><ChevronLeft size={16} /></button>
+                <button className={btnGhost} disabled={pi >= routings.length - 1} onClick={() => setPreview(routings[pi + 1].id)}><ChevronRight size={16} /></button>
+                <button className={btnGhost} onClick={() => setPreview(null)}><X size={16} /></button>
               </div>
               <div className="grid min-h-0 flex-1 grid-cols-2 gap-px bg-stone-300">
                 <div className="bg-white p-2"><p className="mb-1 text-xs text-stone-500">Approved image</p><R2Image objectKey={approvedKey(pr)} className="h-[68vh] w-full" /></div>

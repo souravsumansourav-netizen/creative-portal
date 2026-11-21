@@ -7,6 +7,11 @@ import { useLiveData } from "@/lib/hooks";
 import { Badge, batchLabel, btn, btnDanger, btnGhost, Card, Empty, input, Msg, R2Image } from "@/components/ui";
 import { RefImage } from "@/components/RefImage";
 import { REJECT_REASONS } from "@/lib/constants";
+import { Select } from "@/components/controls";
+import { TableSkeleton } from "@/components/controls";
+import { Segmented } from "@/components/controls";
+import { ChevronLeft } from "lucide-react";
+import { Paperclip } from "lucide-react";
 
 const reasonLabel = (v: string) => REJECT_REASONS.find((r) => r.value === v)?.label ?? v;
 const who = (p: any) => p?.full_name || p?.email || "Someone";
@@ -47,7 +52,7 @@ export default function ShotPage({ params }: { params: Promise<{ id: string }> }
     setComments(c.data ?? []);
   }, ["shots", "shot_versions", "shot_comments"], [id]);
 
-  if (loading && shot === undefined) return <p className="text-sm text-stone-500">Loading…</p>;
+  if (loading && shot === undefined) return <TableSkeleton />;
   if (!shot) return <Empty>{loadError ?? "This shot wasn't found, or you don't have access to it."}</Empty>;
 
   const isReviewer = me?.role === "approver" || me?.role === "admin";
@@ -118,15 +123,14 @@ export default function ShotPage({ params }: { params: Promise<{ id: string }> }
     } catch (e) { setMsg({ error: (e as Error).message }); }
   }
 
-  const dot: Record<string, string> = { approved: "bg-emerald-500", rejected: "bg-red-500", pending: "bg-amber-400" };
+  const dot: Record<string, string> = { approved: "bg-apple-green", rejected: "bg-apple-red", pending: "bg-apple-orange" };
 
   return (
     <>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <Link href={isReviewer ? "/rework" : "/production"} className="text-sm text-maroon-700 hover:underline">← Back</Link>
-          <h1 className="mt-1 text-3xl font-semibold text-maroon-900">{sku.toUpperCase()}</h1>
-          <div className="mt-1.5 h-px w-14 bg-gold-500" />
+          <Link href={isReviewer ? "/rework" : "/production"} className="text-sm text-maroon-700 hover:underline"><ChevronLeft size={15} /> Back</Link>
+          <h1 className="mt-1 text-[1.875rem] font-semibold">{sku.toUpperCase()}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm text-stone-600">
           <span className="rounded-full bg-stone-100 px-2.5 py-0.5">{shot.shot_type}</span>
@@ -161,12 +165,12 @@ export default function ShotPage({ params }: { params: Promise<{ id: string }> }
           </div>
 
           {canReview && (
-            <div className="mt-4 border-t border-stone-100 pt-4 text-sm">
+            <div className="mt-4 border-t border-black/[0.05] pt-4 text-sm">
               {rejecting ? (
                 <div className="flex flex-wrap items-center gap-2">
-                  <select className={input} value={reason} onChange={(e) => setReason(e.target.value)}>
+                  <Select className={input} value={reason} onChange={(e) => setReason(e.target.value)}>
                     {REJECT_REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-                  </select>
+                  </Select>
                   <input className={`${input} min-w-[14rem] flex-1`} placeholder={`Feedback on v${sel.version_no}`} value={rejectText} onChange={(e) => setRejectText(e.target.value)} />
                   <button className={btnDanger} onClick={reject}>Reject v{sel.version_no}</button>
                   <button className={btnGhost} onClick={() => setRejecting(false)}>Cancel</button>
@@ -176,10 +180,8 @@ export default function ShotPage({ params }: { params: Promise<{ id: string }> }
                   <button className={btnGhost} onClick={() => setRejecting(true)}>Reject v{sel.version_no}…</button>
                   <span className="flex-1" />
                   <span className="text-stone-600">Send to:</span>
-                  {([["pdp", "PDP"], ["performance", "Performance"], ["both", "Both"]] as const).map(([k, label]) => (
-                    <button key={k} onClick={() => setDest(k)}
-                      className={`rounded-md border px-3 py-1.5 ${dest === k ? "border-maroon-700 bg-maroon-700 text-white" : "border-stone-300 bg-white hover:bg-stone-100"}`}>{label}</button>
-                  ))}
+                  <Segmented value={dest} onChange={(v) => setDest(v)}
+              options={[{ value: "pdp" as const, label: "PDP" }, { value: "performance" as const, label: "Performance" }, { value: "both" as const, label: "Both" }]} />
                   {needsCampaign && <input className={`${input} w-52`} placeholder="Campaign name" value={campaign} onChange={(e) => setCampaign(e.target.value)} />}
                   <button className={btn} disabled={!dest || (needsCampaign && !campaign.trim())} onClick={approve}>Approve v{sel.version_no}</button>
                 </div>
@@ -200,7 +202,7 @@ export default function ShotPage({ params }: { params: Promise<{ id: string }> }
               if (e.kind === "review") {
                 const v = e.v; const ok = v.review_status === "approved";
                 return (
-                  <div key={i} className={`rounded-md border-l-4 px-3 py-2 ${ok ? "border-emerald-500 bg-emerald-50" : "border-red-400 bg-red-50"}`}>
+                  <div key={i} className={`rounded-md border-l-4 px-3 py-2 ${ok ? "border-apple-green bg-apple-green/10" : "border-apple-red bg-apple-red/10"}`}>
                     <p className="text-xs text-stone-500">{when(e.t)} · {who(v.reviewer)}</p>
                     <p className="font-medium">{ok ? `Approved v${v.version_no}` : `Rejected v${v.version_no}${v.reject_reason ? ` · ${reasonLabel(v.reject_reason)}` : ""}`}</p>
                     {v.reject_comment && <p className="mt-0.5">{v.reject_comment}</p>}
@@ -211,7 +213,7 @@ export default function ShotPage({ params }: { params: Promise<{ id: string }> }
               const tv = versions.find((v) => v.id === c.version_id);
               const rejected = c.tag === "rejected";
               return (
-                <div key={i} className={`rounded-md px-3 py-2 ${rejected ? "border-l-4 border-red-400 bg-red-50" : mine ? "bg-maroon-50" : "bg-stone-100"}`}>
+                <div key={i} className={`rounded-md px-3 py-2 ${rejected ? "border-l-4 border-apple-red bg-apple-red/10" : mine ? "bg-maroon-50" : "bg-black/[0.04]"}`}>
                   <p className="text-xs text-stone-500">{when(e.t)} · <b>{who(c.author)}</b> <span className="capitalize">({(c.author?.role ?? "").replace("_", " ")})</span></p>
                   {tv && (
                     <button onClick={() => setVer(tv.version_no)}
@@ -231,12 +233,13 @@ export default function ShotPage({ params }: { params: Promise<{ id: string }> }
             </p>
           )}
           {canComment && (
-            <div className="mt-4 border-t border-stone-100 pt-3">
+            <div className="mt-4 border-t border-black/[0.05] pt-3">
               <textarea className={`${input} w-full`} rows={3} placeholder={canUpload ? "Reply to the reviewer… (optionally attach new version(s))" : isReviewer ? "Reply to the creator…" : "Write a comment…"} value={text} onChange={(e) => setText(e.target.value)} />
               <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                 {canUpload ? (
                   <label className={`${btnGhost} cursor-pointer`}>
-                    {picked.length ? `📎 ${picked.length === 1 ? (picked[0].length > 20 ? picked[0].slice(0, 18) + "…" : picked[0]) : `${picked.length} images (variations)`}` : "Attach image(s)"}
+                    <Paperclip size={15} />
+                    {picked.length ? (picked.length === 1 ? (picked[0].length > 20 ? picked[0].slice(0, 18) + "…" : picked[0]) : `${picked.length} images (variations)`) : "Attach image(s)"}
                     <input ref={fileRef} type="file" accept="image/jpeg" multiple className="hidden"
                       onChange={(e) => setPicked([...(e.target.files ?? [])].map((f) => f.name))} />
                   </label>

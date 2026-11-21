@@ -4,6 +4,8 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { useLiveData } from "@/lib/hooks";
 import { Card, Empty, input, Msg, PageHeader } from "@/components/ui";
 import { ROLES } from "@/lib/constants";
+import { Select } from "@/components/controls";
+import { TableSkeleton } from "@/components/controls";
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<any[]>([]);
@@ -25,18 +27,18 @@ export default function AdminUsersPage() {
     <>
       <PageHeader title="Users" sub="New sign-ups default to 'creator' (the very first user becomes admin)." />
       <Msg error={msg.error ?? loadError} ok={msg.ok} />
-      {loading ? <p className="text-sm text-stone-500">Loading…</p> : !users.length ? <Empty>No users.</Empty> : (
+      {loading ? <TableSkeleton /> : !users.length ? <Empty>No users.</Empty> : (
         <Card className="p-0">
           <table className="w-full text-sm">
-            <thead className="bg-stone-50 text-left text-stone-500"><tr><th className="p-2">Name</th><th>Email</th><th>Role</th></tr></thead>
+            <thead className="bg-black/[0.025] text-left text-stone-500"><tr><th className="p-2">Name</th><th>Email</th><th>Role</th></tr></thead>
             <tbody>
               {users.map((u) => (
-                <tr key={u.id} className="border-t border-stone-100">
+                <tr key={u.id} className="border-t border-black/[0.05]">
                   <td className="p-2">{u.full_name || "—"}</td><td>{u.email}</td>
                   <td>
-                    <select className={input} value={u.role} onChange={(e) => setRole(u.id, e.target.value)}>
+                    <Select className={input} value={u.role} onChange={(e) => setRole(u.id, e.target.value)}>
                       {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                    </select>
+                    </Select>
                   </td>
                 </tr>
               ))}

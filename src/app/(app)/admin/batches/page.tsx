@@ -5,6 +5,7 @@ import { invoke, rpc } from "@/lib/api";
 import { formatBytes, STORAGE_ALERT_BYTES, STORAGE_LIMIT_BYTES } from "@/lib/constants";
 import { useLiveData } from "@/lib/hooks";
 import { btnDanger, btnGhost, Card, Empty, input, Msg, PageHeader } from "@/components/ui";
+import { TableSkeleton } from "@/components/controls";
 
 export default function AdminBatchesPage() {
   const [batches, setBatches] = useState<any[]>([]);
@@ -51,17 +52,17 @@ export default function AdminBatchesPage() {
           </span>
         </div>
         <div className="relative h-3 overflow-hidden rounded bg-stone-100">
-          <div className={`h-3 ${used >= STORAGE_ALERT_BYTES ? "bg-red-500" : "bg-emerald-500"}`} style={{ width: `${Math.min(100, (used / STORAGE_LIMIT_BYTES) * 100)}%` }} />
+          <div className={`h-3 ${used >= STORAGE_ALERT_BYTES ? "bg-apple-red" : "bg-apple-green"}`} style={{ width: `${Math.min(100, (used / STORAGE_LIMIT_BYTES) * 100)}%` }} />
         </div>
         <p className="mt-1 text-xs text-stone-500">Counts stored images only (not temporary uploads or source Excel files). Delete finished batches to free space.</p>
       </Card>
-      {loading ? <p className="text-sm text-stone-500">Loading…</p> : !batches.length ? <Empty>No batches.</Empty> : (
+      {loading ? <TableSkeleton /> : !batches.length ? <Empty>No batches.</Empty> : (
         <Card className="p-0">
           <table className="w-full text-sm">
-            <thead className="bg-stone-50 text-left text-stone-500"><tr><th className="p-2">Batch</th><th>SKUs</th><th>Untriaged</th><th>Images</th><th>Size</th><th /></tr></thead>
+            <thead className="bg-black/[0.025] text-left text-stone-500"><tr><th className="p-2">Batch</th><th>SKUs</th><th>Untriaged</th><th>Images</th><th>Size</th><th /></tr></thead>
             <tbody>
               {batches.map((b) => (
-                <tr key={b.batch_id} className="border-t border-stone-100">
+                <tr key={b.batch_id} className="border-t border-black/[0.05]">
                   <td className="p-2 font-medium">{label(b)}{b.name && <span className="ml-2 text-stone-500">{b.name}</span>}</td>
                   <td>{b.skus}</td><td>{b.untriaged}</td><td>{b.images}</td><td>{formatBytes(b.bytes)}</td>
                   <td className="p-2 text-right"><button className={btnDanger} onClick={() => { setTarget(b); setTyped(""); }}>Delete…</button></td>
@@ -73,8 +74,8 @@ export default function AdminBatchesPage() {
       )}
 
       {target && (
-        <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/40 p-4">
-          <Card className="w-full max-w-md">
+        <div className="scrim anim-fade fixed inset-0 z-10 flex items-center justify-center p-4">
+          <Card className="sheet anim-pop w-full max-w-md !rounded-2xl">
             <h2 className="mb-2 text-lg font-semibold text-red-700">Delete {label(target)}?</h2>
             <p className="mb-3 text-sm text-stone-600">
               This permanently deletes {target.skus} SKU(s) and every image for them. It cannot be undone.

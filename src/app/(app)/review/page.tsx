@@ -6,6 +6,11 @@ import { downloadAsset, openAsset, rpc } from "@/lib/api";
 import { useLiveData } from "@/lib/hooks";
 import { Badge, batchLabel, btn, btnDanger, btnGhost, input, R2Image } from "@/components/ui";
 import { REJECT_REASONS, referenceUrl } from "@/lib/constants";
+import { Select } from "@/components/controls";
+import { TableSkeleton } from "@/components/controls";
+import { Segmented } from "@/components/controls";
+import { ArrowUpRight, ChevronLeft, ChevronRight, Download, X } from "lucide-react";
+import { MessageSquare } from "lucide-react";
 
 const reasonLabel = (v: string) => REJECT_REASONS.find((r) => r.value === v)?.label ?? v;
 
@@ -97,13 +102,13 @@ export default function ReviewPage() {
     } catch (e) { setMsg((e as Error).message); }
   }
 
-  if (loading) return <Shell><p className="m-auto text-sm text-stone-500">Loading…</p></Shell>;
+  if (loading) return <Shell><div className="m-auto w-80 max-w-full"><TableSkeleton rows={3} /></div></Shell>;
   if (!cur || !v) {
     return (
       <Shell>
         <div className="m-auto text-center">
           <p className="mb-3 text-stone-600">{loadError ?? "Nothing to review right now."}</p>
-          <Link href="/dashboard" className={btnGhost}>← Back to portal</Link>
+          <Link href="/dashboard" className={btnGhost}><ChevronLeft size={15} /> Back to portal</Link>
         </div>
       </Shell>
     );
@@ -113,14 +118,14 @@ export default function ReviewPage() {
     <Shell>
       {/* top bar */}
       <header className="flex flex-wrap items-center gap-3 border-b border-stone-200 bg-white px-4 py-2 text-sm">
-        <Link href="/dashboard" className={btnGhost}>✕ Exit</Link>
+        <Link href="/dashboard" className={btnGhost}><X size={15} /> Exit</Link>
         <span className="text-base font-semibold">{sku.toUpperCase()}</span>
         <span className="rounded-full bg-stone-100 px-2 py-0.5">{cur.shot_type}</span>
         <span className="text-stone-500">{batchLabel(cur.skus.batches)} · by {cur.profiles?.full_name || cur.profiles?.email}</span>
         <div className="ml-auto flex items-center gap-2">
-          <button className={btnGhost} disabled={idx <= 0} onClick={() => setIdx(idx - 1)}>←</button>
+          <button className={btnGhost} disabled={idx <= 0} onClick={() => setIdx(idx - 1)}><ChevronLeft size={16} /></button>
           <span>{Math.min(idx, shots.length - 1) + 1} of {shots.length}</span>
-          <button className={btnGhost} disabled={idx >= shots.length - 1} onClick={() => setIdx(idx + 1)}>→</button>
+          <button className={btnGhost} disabled={idx >= shots.length - 1} onClick={() => setIdx(idx + 1)}><ChevronRight size={16} /></button>
         </div>
       </header>
 
@@ -129,7 +134,7 @@ export default function ReviewPage() {
         <div className="flex items-center gap-2 border-b border-stone-200 bg-white px-4 py-1.5 text-sm">
           {pend.map((p, i) => (
             <button key={p.id} onClick={() => setVarIdx(i)}
-              className={`rounded-md px-3 py-1 ${i === varIdx ? "bg-teal-600 text-white" : "bg-stone-100 text-stone-700 hover:bg-stone-200"}`}>
+              className={`rounded-md px-3 py-1 ${i === varIdx ? "bg-maroon-700 text-white" : "bg-black/[0.06] text-stone-700 hover:bg-black/[0.10]"}`}>
               Var {i + 1}
             </button>
           ))}
@@ -163,11 +168,11 @@ export default function ReviewPage() {
             <p className="mb-2 flex flex-wrap items-center gap-x-2 text-xs text-stone-600">
               {last && (
                 <span className="max-w-full truncate rounded bg-stone-100 px-2 py-1">
-                  💬 <b>{last.commenter?.full_name || last.commenter?.email}</b>: {last.body.length > 120 ? `${last.body.slice(0, 120)}…` : last.body}
+                  <MessageSquare size={13} className="mr-1 inline -translate-y-px" /><b>{last.commenter?.full_name || last.commenter?.email}</b>: {last.body.length > 120 ? `${last.body.slice(0, 120)}…` : last.body}
                 </span>
               )}
               <a href={`/shots/${cur.id}`} target="_blank" rel="noopener noreferrer" className="font-medium text-maroon-700 underline">
-                {last ? "Open full thread ↗" : "Open shot page ↗"}
+                {last ? "Open full thread" : "Open shot page"} <ArrowUpRight size={13} className="inline" />
               </a>
             </p>
           );
@@ -179,9 +184,9 @@ export default function ReviewPage() {
         )}
         {rejecting ? (
           <div className="flex flex-wrap items-center gap-2">
-            <select className={input} value={reason} onChange={(e) => setReason(e.target.value)}>
+            <Select className={input} value={reason} onChange={(e) => setReason(e.target.value)}>
               {REJECT_REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-            </select>
+            </Select>
             <input className={`${input} min-w-[16rem] flex-1`} placeholder={multi ? `Feedback on Var ${varIdx + 1}` : "Feedback for the creator"} value={comment} onChange={(e) => setComment(e.target.value)} />
             <button className={btnDanger} onClick={rejectCurrent}>{multi ? `Reject Var ${varIdx + 1}` : "Reject & send back"}</button>
             <button className={btnGhost} onClick={() => setRejecting(false)}>Cancel</button>
@@ -189,14 +194,12 @@ export default function ReviewPage() {
         ) : (
           <div className="flex flex-wrap items-center gap-2">
             <button className={btnGhost} disabled={!v.assets}
-              onClick={() => v.assets && downloadAsset(v.assets.object_key, `${sku}_${cur.shot_type}_v${v.version_no}.jpg`)}>Download</button>
+              onClick={() => v.assets && downloadAsset(v.assets.object_key, `${sku}_${cur.shot_type}_v${v.version_no}.jpg`)}><Download size={15} /> Download</button>
             <button className={btnGhost} onClick={() => setRejecting(true)}>{multi ? `Reject Var ${varIdx + 1} / feedback…` : "Reject / feedback…"}</button>
             <span className="flex-1" />
             <span className="text-stone-600">Send to:</span>
-            {([["pdp", "PDP"], ["performance", "Performance"], ["both", "Both"]] as const).map(([k, label]) => (
-              <button key={k} onClick={() => setDest(k)}
-                className={`rounded-md border px-3 py-1.5 ${dest === k ? "border-maroon-700 bg-maroon-700 text-white" : "border-stone-300 bg-white hover:bg-stone-100"}`}>{label}</button>
-            ))}
+            <Segmented value={dest} onChange={(v) => setDest(v)}
+              options={[{ value: "pdp" as const, label: "PDP" }, { value: "performance" as const, label: "Performance" }, { value: "both" as const, label: "Both" }]} />
             {needsCampaign && (
               <input className={`${input} w-56`} placeholder="Campaign name (required)" value={campaign} onChange={(e) => setCampaign(e.target.value)} />
             )}

@@ -5,6 +5,8 @@ import { invoke, postResubmitComment, uploadToR2 } from "@/lib/api";
 import { useLiveData } from "@/lib/hooks";
 import { Badge, batchLabel, btn, Card, Empty, input, Msg, PageHeader, R2Image } from "@/components/ui";
 import { REJECT_REASONS } from "@/lib/constants";
+import { TableSkeleton } from "@/components/controls";
+import { FilePicker, Segmented } from "@/components/controls";
 
 type ShotType = "mood" | "model";
 type Filter = "todo" | "review" | "done";
@@ -13,14 +15,14 @@ type FileError = { file: string | null; message: string };
 const THEME: Record<ShotType, { label: string; tab: string; box: string; hint: string }> = {
   mood: {
     label: "Mood shots",
-    tab: "border-amber-500 text-amber-700",
-    box: "border-amber-300 bg-amber-50",
+    tab: "",
+    box: "",
     hint: "Name each image exactly like the SKU code, e.g. 50D6C4BWJLAP1.jpg",
   },
   model: {
     label: "Model shots",
-    tab: "border-maroon-600 text-maroon-700",
-    box: "border-maroon-200 bg-maroon-50",
+    tab: "",
+    box: "",
     hint: "Name each model image exactly like the SKU code, e.g. 50D6C4BWJLAP1.jpg",
   },
 };
@@ -38,7 +40,7 @@ export default function ProductionPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ error?: string; ok?: string }>({});
   const [errors, setErrors] = useState<FileError[]>([]);
-  const bulkRef = useRef<HTMLInputElement>(null);
+  const [bulkFiles, setBulkFiles] = useState<File[]>([]);
 
   const { loading, error: loadError, reload } = useLiveData(async () => {
     const { data, error } = await supabaseBrowser()
@@ -65,7 +67,7 @@ export default function ProductionPage() {
       if (comment?.trim() && shotId) await postResubmitComment(shotId, comment.trim(), r.images ?? files.length);
       setMsg({ ok: variations ? `Submitted ${r.images} variation${r.images === 1 ? "" : "s"} for review.` : `Submitted ${r.submitted} ${shotType} shot${r.submitted === 1 ? "" : "s"} for review.` });
       setErrors(r.errors ?? []);
-      if (bulkRef.current) bulkRef.current.value = "";
+      setBulkFiles([]);
       if (!variations) setFilter("review");
       reload();
     } catch (e) {
@@ -98,17 +100,16 @@ export default function ProductionPage() {
 
       <SummaryCards shots={shots} filter={filter} onFilter={setFilter} />
 
-      <div className="mb-4 flex gap-2 border-b border-stone-200">
-        {(Object.keys(THEME) as ShotType[]).map((t) => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${tab === t ? THEME[t].tab : "border-transparent text-stone-500 hover:text-stone-800"}`}>
-            {THEME[t].label} <span className="ml-1 rounded-full bg-stone-100 px-2 text-xs text-stone-600">{count(t, "todo")} to do</span>
-          </button>
-        ))}
-        <button onClick={() => setTab("variations")}
-          className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${tab === "variations" ? "border-teal-500 text-teal-700" : "border-transparent text-stone-500 hover:text-stone-800"}`}>
-          Variations
-        </button>
+      <div className="mb-4">
+        <Segmented
+          value={tab}
+          onChange={(v) => setTab(v)}
+          options={[
+            { value: "mood" as const, label: "Mood shots", badge: `${count("mood", "todo")} to do` },
+            { value: "model" as const, label: "Model shots", badge: `${count("model", "todo")} to do` },
+            { value: "variations" as const, label: "Variations" },
+          ]}
+        />
       </div>
 
       {tab === "variations" ? (
@@ -119,25 +120,22 @@ export default function ProductionPage() {
           <p className="font-medium">Bulk upload · {theme.label}</p>
           <p className="text-stone-600">{theme.hint}</p>
         </div>
-        <input ref={bulkRef} type="file" accept="image/jpeg" multiple disabled={!!busy} />
-        <button className={btn} disabled={!!busy} onClick={() => send([...(bulkRef.current?.files ?? [])], shotTab)}>
+        <FilePicker className="min-w-[16rem]" files={bulkFiles} onFiles={setBulkFiles} accept="image/jpeg" multiple disabled={!!busy}
+          label="Choose images" hint="JPEG files named after the SKU code" />
+        <button className={btn} disabled={!!busy || !bulkFiles.length} onClick={() => send(bulkFiles, shotTab)}>
           {busy === "bulk" ? "Uploading…" : "Upload images"}
         </button>
       </Card>
 
-      <div className="mb-3 flex gap-2 text-sm">
-        {FILTERS.map((f) => (
-          <button key={f.key} onClick={() => setFilter(f.key)}
-            className={`rounded-full px-3 py-1 ${filter === f.key ? "bg-maroon-700 text-white" : "bg-stone-100 text-stone-700 hover:bg-stone-200"}`}>
-            {f.label} ({count(shotTab, f.key)})
-          </button>
-        ))}
+      <div className="mb-3">
+        <Segmented value={filter} onChange={(v) => setFilter(v)}
+          options={FILTERS.map((f) => ({ value: f.key, label: f.label, badge: count(shotTab, f.key) }))} />
       </div>
 
-      {loading ? <p className="text-sm text-stone-500">Loading…</p> : !rows.length ? <Empty>Nothing here.</Empty> : (
+      {loading ? <TableSkeleton /> : !rows.length ? <Empty hint="Try another filter above.">Nothing here</Empty> : (
         <Card className="overflow-x-auto p-0">
           <table className="w-full text-sm">
-            <thead className="bg-stone-50 text-left text-stone-500">
+            <thead className="bg-black/[0.025] text-left text-stone-500">
               <tr><th className="p-2">Batch</th><th>SKU</th><th>Preview</th><th>Status</th><th>Ver.</th><th>Latest feedback</th><th /></tr>
             </thead>
             <tbody>
@@ -150,7 +148,7 @@ export default function ProductionPage() {
                   .filter((v: any) => v.review_status === "rejected" && !String(v.reject_comment ?? "").startsWith("Not selected"))
                   .sort((a: any, b: any) => b.version_no - a.version_no).slice(0, 4);
                 return (
-                  <tr key={s.id} className="border-t border-stone-100">
+                  <tr key={s.id} className="border-t border-black/[0.05]">
                     <td className="p-2">{batchLabel(s.skus.batches)}</td>
                     <td className="font-medium">
                       <a href={`/shots/${s.id}`} target="_blank" rel="noopener noreferrer" className="hover:text-maroon-700 hover:underline">{s.skus.sku_code}</a>
@@ -204,8 +202,7 @@ export default function ProductionPage() {
 function VariationsPanel({ shots, busy, onSend }: { shots: any[]; busy: string | null; onSend: (files: File[], shot: any, note: string) => void }) {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<any | null>(null);
-  const filesRef = useRef<HTMLInputElement>(null);
-  const [picked, setPicked] = useState(0);
+  const [files, setFiles] = useState<File[]>([]);
   const [note, setNote] = useState("");
 
   const matches = shots
@@ -214,7 +211,7 @@ function VariationsPanel({ shots, busy, onSend }: { shots: any[]; busy: string |
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <Card className="border-teal-300 bg-teal-50">
+      <Card>
         <p className="mb-1 font-medium">1. Find the SKU</p>
         <input className={`${input} mb-3 w-full`} placeholder="Search assigned SKUs…" value={q} onChange={(e) => setQ(e.target.value)} />
         {!matches.length ? <p className="text-sm text-stone-500">No assigned shots in production match.</p> : (
@@ -222,7 +219,7 @@ function VariationsPanel({ shots, busy, onSend }: { shots: any[]; busy: string |
             {matches.map((s) => (
               <li key={s.id}>
                 <button onClick={() => setSel(s)}
-                  className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left ${sel?.id === s.id ? "border-teal-600 bg-white" : "border-transparent bg-white/60 hover:bg-white"}`}>
+                  className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left ${sel?.id === s.id ? "border-maroon-600 bg-maroon-50/60" : "border-transparent hover:bg-black/[0.04]"}`}>
                   <span className="font-medium">{s.skus.sku_code}</span>
                   <span className="text-stone-500">{s.shot_type} · {batchLabel(s.skus.batches)}</span>
                 </button>
@@ -237,12 +234,12 @@ function VariationsPanel({ shots, busy, onSend }: { shots: any[]; busy: string |
         {!sel ? <p className="text-sm text-stone-500">Pick a SKU on the left.</p> : (
           <>
             <p className="mb-3 text-sm">Uploading for <b>{sel.skus.sku_code}</b> · {sel.shot_type}. File names don&apos;t matter and there are no checks; the reviewer will choose one.</p>
-            <input ref={filesRef} type="file" accept="image/jpeg" multiple className="mb-3 block text-sm" disabled={!!busy}
-              onChange={(e) => setPicked(e.target.files?.length ?? 0)} />
+            <FilePicker className="mb-3" files={files} onFiles={setFiles} accept="image/jpeg" multiple disabled={!!busy}
+              label="Choose the variations" hint="Any number of JPEGs, any file names" />
             <textarea className={`${input} mb-3 w-full`} rows={3} placeholder="Add a comment for the reviewer (optional): e.g. what differs between the variations" value={note} onChange={(e) => setNote(e.target.value)} />
-            <button className={btn} disabled={!!busy || !picked}
-              onClick={() => { onSend([...(filesRef.current?.files ?? [])], sel, note); if (filesRef.current) filesRef.current.value = ""; setPicked(0); setNote(""); setSel(null); }}>
-              {busy === sel.id ? "Uploading…" : `Submit ${picked || ""} variation${picked === 1 ? "" : "s"} for review`}
+            <button className={btn} disabled={!!busy || !files.length}
+              onClick={() => { onSend(files, sel, note); setFiles([]); setNote(""); setSel(null); }}>
+              {busy === sel.id ? "Uploading…" : `Submit ${files.length || ""} variation${files.length === 1 ? "" : "s"} for review`}
             </button>
           </>
         )}
@@ -260,33 +257,33 @@ function SummaryCards({ shots, filter, onFilter }: { shots: any[]; filter: Filte
   const total = shots.length;
   const pct = total ? Math.round((done / total) * 100) : 0;
 
-  const cards: { key: Filter | null; label: string; n: number; sub?: string; tone: string }[] = [
-    { key: null, label: "Assigned to you", n: total, sub: "mood + model shots", tone: "border-maroon-600 bg-maroon-50 text-maroon-800" },
-    { key: "todo", label: "To do", n: todo.length, sub: rework ? `${rework} sent back for rework` : "nothing sent back", tone: "border-amber-500 bg-amber-50 text-amber-800" },
-    { key: "review", label: "In review", n: review, sub: "waiting on the reviewer", tone: "border-violet-500 bg-violet-50 text-violet-800" },
-    { key: "done", label: "Approved", n: done, sub: "approved or complete", tone: "border-emerald-500 bg-emerald-50 text-emerald-800" },
+  const cards: { key: Filter | null; label: string; n: number; sub?: string; dot: string }[] = [
+    { key: null, label: "Assigned to you", n: total, sub: "mood + model shots", dot: "bg-maroon-700" },
+    { key: "todo", label: "To do", n: todo.length, sub: rework ? `${rework} sent back for rework` : "nothing sent back", dot: "bg-apple-orange" },
+    { key: "review", label: "In review", n: review, sub: "waiting on the reviewer", dot: "bg-apple-purple" },
+    { key: "done", label: "Approved", n: done, sub: "approved or complete", dot: "bg-apple-green" },
   ];
 
   return (
     <div className="mb-5">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="stagger grid grid-cols-2 gap-3 lg:grid-cols-4">
         {cards.map((c) => {
           const Tag = c.key ? "button" : "div";
           return (
             <Tag key={c.label} {...(c.key ? { onClick: () => onFilter(c.key!) } : {})}
-              className={`rounded-xl border-l-4 p-4 text-left shadow-card ${c.tone} ${c.key && filter === c.key ? "ring-2 ring-maroon-300" : ""} ${c.key ? "transition hover:brightness-95" : ""}`}>
-              <p className="text-xs font-medium uppercase tracking-wider opacity-80">{c.label}</p>
-              <p className="mt-1 font-display text-4xl font-semibold leading-none">{c.n}</p>
-              <p className="mt-1.5 text-xs opacity-80">{c.sub}</p>
+              className={`rounded-2xl border bg-white p-4 text-left shadow-card transition-[box-shadow,transform,border-color] duration-150 ${c.key && filter === c.key ? "border-maroon-500 ring-[3px] ring-maroon-500/15" : "border-black/[0.06]"} ${c.key ? "active:scale-[0.985] motion-reduce:active:scale-100 hover:shadow-md" : ""}`}>
+              <p className="flex items-center gap-1.5 text-[0.8125rem] font-medium text-stone-500"><span className={`h-2 w-2 rounded-full ${c.dot}`} />{c.label}</p>
+              <p className="mt-2 text-4xl font-semibold leading-none tracking-[-0.03em] tabular-nums text-stone-900">{c.n}</p>
+              <p className="mt-2 text-xs text-stone-500">{c.sub}</p>
             </Tag>
           );
         })}
       </div>
-      <div className="mt-3 flex items-center gap-3 text-xs text-stone-600">
-        <div className="h-2 flex-1 overflow-hidden rounded-full bg-stone-200">
-          <div className="h-2 rounded-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
+      <div className="mt-3 flex items-center gap-3 text-xs text-stone-500">
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-black/[0.07]">
+          <div className="h-1.5 rounded-full bg-apple-green transition-[width] duration-500 ease-out" style={{ width: `${pct}%` }} />
         </div>
-        <span>{done} of {total} approved · {pct}%</span>
+        <span className="tabular-nums">{done} of {total} approved · {pct}%</span>
       </div>
     </div>
   );

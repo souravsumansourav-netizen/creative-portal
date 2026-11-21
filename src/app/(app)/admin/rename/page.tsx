@@ -125,7 +125,7 @@ export default function RenameImagesPage() {
         onDrop={onDrop}
         className={`mb-5 rounded-xl border-2 border-dashed p-8 text-center transition-colors ${over ? "border-maroon-500 bg-maroon-50" : "border-stone-300 bg-white"}`}
       >
-        <p className="font-display text-2xl text-maroon-800">Drop a folder of images here</p>
+        <p className="text-xl font-semibold tracking-[-0.018em] text-maroon-800">Drop a folder of images here</p>
         <p className="mt-1 text-sm text-stone-500">or choose one below. Subfolders are included. Everything stays on your computer: nothing is uploaded.</p>
         <div className="mt-4 flex flex-wrap justify-center gap-3">
           <input ref={folderRef} type="file" multiple className="hidden"
@@ -144,7 +144,7 @@ export default function RenameImagesPage() {
             <span><b>{rows.length}</b> images · {mb(totalBytes)}</span>
             <span><b>{changed}</b> will be renamed</span>
             <span className="text-stone-500">{rows.length - changed} already in capitals</span>
-            {deduped > 0 && <span className="text-amber-700">{deduped} duplicate name{deduped > 1 ? "s" : ""} got a _2 / _3 suffix</span>}
+            {deduped > 0 && <span className="text-ink-orange">{deduped} duplicate name{deduped > 1 ? "s" : ""} got a _2 / _3 suffix</span>}
             {skipped > 0 && <span className="text-stone-500">{skipped} non-image file{skipped > 1 ? "s" : ""} skipped</span>}
             <span className="flex-1" />
             <button className={btnGhost} disabled={!!progress} onClick={() => { setItems([]); setSkipped(0); setMsg({}); }}>Clear</button>
@@ -154,20 +154,20 @@ export default function RenameImagesPage() {
 
           <Card className="overflow-x-auto p-0">
             <table className="w-full text-sm">
-              <thead className="bg-stone-50 text-left text-stone-500"><tr><th className="p-2">Original</th><th>New name</th><th /></tr></thead>
+              <thead className="bg-black/[0.025] text-left text-stone-500"><tr><th className="p-2">Original</th><th>New name</th><th /></tr></thead>
               <tbody>
                 {rows.slice(0, 200).map((r, i) => (
-                  <tr key={i} className="border-t border-stone-100">
+                  <tr key={i} className="border-t border-black/[0.05]">
                     <td className="p-2 text-stone-600">{r.path}</td>
                     <td className="font-medium">{r.renamed}</td>
                     <td className="pr-3 text-right text-xs">
-                      {r.deduped ? <span className="text-amber-700">duplicate</span> : r.changed ? <span className="text-emerald-700">renamed</span> : <span className="text-stone-400">unchanged</span>}
+                      {r.deduped ? <span className="text-ink-orange">duplicate</span> : r.changed ? <span className="text-ink-green">renamed</span> : <span className="text-stone-400">unchanged</span>}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {rows.length > 200 && <p className="border-t border-stone-100 p-2 text-center text-xs text-stone-500">Showing the first 200 of {rows.length}. All {rows.length} go into the ZIP.</p>}
+            {rows.length > 200 && <p className="border-t border-black/[0.05] p-2 text-center text-xs text-stone-500">Showing the first 200 of {rows.length}. All {rows.length} go into the ZIP.</p>}
           </Card>
         </>
       )}

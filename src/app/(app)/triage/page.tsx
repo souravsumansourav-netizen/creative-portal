@@ -5,6 +5,9 @@ import { rpc } from "@/lib/api";
 import { useLiveData } from "@/lib/hooks";
 import { batchLabel, btn, btnGhost, Card, Empty, input, Msg, PageHeader } from "@/components/ui";
 import { RefImage } from "@/components/RefImage";
+import { Select, Checkbox } from "@/components/controls";
+import { TableSkeleton } from "@/components/controls";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
 type Row = { shoot: { mood: boolean; model: boolean }; batch_id: string; creator_id: string };
 
@@ -83,25 +86,25 @@ export default function TriagePage() {
         <button className={btnGhost} disabled={!selected.length} onClick={() => patch(selected, { shoot: { mood: true, model: false } })}>Mood</button>
         <button className={btnGhost} disabled={!selected.length} onClick={() => patch(selected, { shoot: { mood: false, model: true } })}>Model</button>
         <button className={btnGhost} disabled={!selected.length} onClick={() => patch(selected, { shoot: { mood: true, model: true } })}>Both</button>
-        <select className={input} value={bulkBatch} onChange={(e) => setBulkBatch(e.target.value)}>
+        <Select className={input} value={bulkBatch} onChange={(e) => setBulkBatch(e.target.value)}>
           <option value="">Batch…</option>
           {batches.map((b) => <option key={b.id} value={b.id}>{batchLabel(b)}</option>)}
-        </select>
+        </Select>
         <button className={btnGhost} disabled={!selected.length || !bulkBatch} onClick={() => patch(selected, { batch_id: bulkBatch })}>Set batch</button>
         <button className={btnGhost} onClick={newBatch}>+ New batch</button>
-        <select className={input} value={bulkCreator} onChange={(e) => setBulkCreator(e.target.value)}>
+        <Select className={input} value={bulkCreator} onChange={(e) => setBulkCreator(e.target.value)}>
           <option value="">Creator…</option>
           {creators.map((c) => <option key={c.id} value={c.id}>{cName(c)}</option>)}
-        </select>
+        </Select>
         <button className={btnGhost} disabled={!selected.length || !bulkCreator} onClick={() => patch(selected, { creator_id: bulkCreator })}>Set creator</button>
       </Card>
 
-      {loading ? <p className="text-sm text-stone-500">Loading…</p> : !skus.length ? <Empty>Nothing waiting for triage.</Empty> : (
+      {loading ? <TableSkeleton /> : !skus.length ? <Empty hint="New SKUs appear here after an Excel upload.">Nothing waiting for triage</Empty> : (
         <Card className="overflow-x-auto p-0">
           <table className="w-full text-sm">
-            <thead className="bg-stone-50 text-left text-stone-500">
+            <thead className="bg-black/[0.025] text-left text-stone-500">
               <tr>
-                <th className="p-2"><input type="checkbox" checked={sel.size === skus.length} onChange={(e) => setSel(e.target.checked ? new Set(skus.map((k) => k.id)) : new Set())} /></th>
+                <th className="p-2"><Checkbox checked={sel.size === skus.length} onChange={(e) => setSel(e.target.checked ? new Set(skus.map((k) => k.id)) : new Set())} /></th>
                 <th>SKU</th><th>Preview</th><th>Upload</th><th>Mood</th><th>Model</th><th>Batch</th><th>Creator</th>
               </tr>
             </thead>
@@ -109,8 +112,8 @@ export default function TriagePage() {
               {skus.map((k) => {
                 const r = rows[k.id]; if (!r) return null;
                 return (
-                  <tr key={k.id} className="border-t border-stone-100">
-                    <td className="p-2"><input type="checkbox" checked={sel.has(k.id)} onChange={() => toggle(k.id)} /></td>
+                  <tr key={k.id} className={`border-t border-black/[0.05] transition-colors ${sel.has(k.id) ? "bg-maroon-50/70" : ""}`}>
+                    <td className="p-2"><Checkbox checked={sel.has(k.id)} onChange={() => toggle(k.id)} /></td>
                     <td className="font-medium">{k.sku_code}</td>
                     <td className="py-2">
                       <button type="button" title="Click to enlarge" onClick={() => setPreview(skus.indexOf(k))}>
@@ -118,18 +121,18 @@ export default function TriagePage() {
                       </button>
                     </td>
                     <td className="text-stone-500">{k.uploads?.file_name}</td>
-                    <td><input type="checkbox" checked={r.shoot.mood} onChange={(e) => patch([k.id], { shoot: { ...r.shoot, mood: e.target.checked } })} /></td>
-                    <td><input type="checkbox" checked={r.shoot.model} onChange={(e) => patch([k.id], { shoot: { ...r.shoot, model: e.target.checked } })} /></td>
+                    <td><Checkbox checked={r.shoot.mood} onChange={(e) => patch([k.id], { shoot: { ...r.shoot, mood: e.target.checked } })} /></td>
+                    <td><Checkbox checked={r.shoot.model} onChange={(e) => patch([k.id], { shoot: { ...r.shoot, model: e.target.checked } })} /></td>
                     <td>
-                      <select className={input} value={r.batch_id} onChange={(e) => patch([k.id], { batch_id: e.target.value })}>
+                      <Select className={input} value={r.batch_id} onChange={(e) => patch([k.id], { batch_id: e.target.value })}>
                         {batches.map((b) => <option key={b.id} value={b.id}>{batchLabel(b)}</option>)}
-                      </select>
+                      </Select>
                     </td>
                     <td>
-                      <select className={input} value={r.creator_id} onChange={(e) => patch([k.id], { creator_id: e.target.value })}>
+                      <Select className={input} value={r.creator_id} onChange={(e) => patch([k.id], { creator_id: e.target.value })}>
                         <option value="">—</option>
                         {creators.map((c) => <option key={c.id} value={c.id}>{cName(c)}</option>)}
-                      </select>
+                      </Select>
                     </td>
                   </tr>
                 );
@@ -141,34 +144,34 @@ export default function TriagePage() {
       {preview !== null && skus[preview] && (() => {
         const k = skus[preview]; const r = rows[k.id];
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setPreview(null)}>
-            <div className="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-xl md:flex-row" onClick={(e) => e.stopPropagation()}>
+          <div className="scrim anim-fade fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setPreview(null)}>
+            <div className="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl sheet anim-pop md:flex-row" onClick={(e) => e.stopPropagation()}>
               <div className="flex min-h-0 flex-1 items-center justify-center bg-stone-100 p-2">
                 <RefImage sku={k.sku_code} lazy={false} className="h-[70vh] w-full" />
               </div>
               <div className="w-full space-y-4 p-5 text-sm md:w-80">
                 <div className="flex items-start justify-between">
                   <div><p className="text-base font-semibold">{k.sku_code}</p><p className="text-stone-500">{preview + 1} of {skus.length}</p></div>
-                  <button className={btnGhost} onClick={() => setPreview(null)}>✕</button>
+                  <button className={btnGhost} onClick={() => setPreview(null)}><X size={16} /></button>
                 </div>
                 <div className="space-y-2">
-                  <label className="flex items-center gap-2"><input type="checkbox" checked={r.shoot.mood} onChange={(e) => patch([k.id], { shoot: { ...r.shoot, mood: e.target.checked } })} /> Mood shot</label>
-                  <label className="flex items-center gap-2"><input type="checkbox" checked={r.shoot.model} onChange={(e) => patch([k.id], { shoot: { ...r.shoot, model: e.target.checked } })} /> Model shot</label>
+                  <label className="flex items-center gap-2"><Checkbox checked={r.shoot.mood} onChange={(e) => patch([k.id], { shoot: { ...r.shoot, mood: e.target.checked } })} /> Mood shot</label>
+                  <label className="flex items-center gap-2"><Checkbox checked={r.shoot.model} onChange={(e) => patch([k.id], { shoot: { ...r.shoot, model: e.target.checked } })} /> Model shot</label>
                 </div>
                 <label className="block">Batch
-                  <select className={`${input} mt-1 w-full`} value={r.batch_id} onChange={(e) => patch([k.id], { batch_id: e.target.value })}>
+                  <Select className={`${input} mt-1 w-full`} value={r.batch_id} onChange={(e) => patch([k.id], { batch_id: e.target.value })}>
                     {batches.map((b) => <option key={b.id} value={b.id}>{batchLabel(b)}</option>)}
-                  </select>
+                  </Select>
                 </label>
                 <label className="block">Creator
-                  <select className={`${input} mt-1 w-full`} value={r.creator_id} onChange={(e) => patch([k.id], { creator_id: e.target.value })}>
+                  <Select className={`${input} mt-1 w-full`} value={r.creator_id} onChange={(e) => patch([k.id], { creator_id: e.target.value })}>
                     <option value="">—</option>
                     {creators.map((c) => <option key={c.id} value={c.id}>{cName(c)}</option>)}
-                  </select>
+                  </Select>
                 </label>
                 <div className="flex gap-2">
-                  <button className={btnGhost} disabled={preview <= 0} onClick={() => setPreview(preview - 1)}>← Prev</button>
-                  <button className={btn} disabled={preview >= skus.length - 1} onClick={() => setPreview(preview + 1)}>Next →</button>
+                  <button className={btnGhost} disabled={preview <= 0} onClick={() => setPreview(preview - 1)}><ChevronLeft size={16} /> Prev</button>
+                  <button className={btn} disabled={preview >= skus.length - 1} onClick={() => setPreview(preview + 1)}>Next <ChevronRight size={16} /></button>
                 </div>
               </div>
             </div>

@@ -4,9 +4,10 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { useLiveData } from "@/lib/hooks";
 import { Card, Empty, PageHeader } from "@/components/ui";
 import { STAGES } from "@/lib/constants";
+import { TableSkeleton } from "@/components/controls";
 
 const STAGE_COLOR: Record<string, string> = {
-  in_production: "bg-amber-400", submitted: "bg-sky-400", in_review: "bg-violet-400", approved: "bg-emerald-400", done: "bg-stone-500",
+  in_production: "bg-apple-orange", submitted: "bg-apple-blue", in_review: "bg-apple-purple", approved: "bg-apple-green", done: "bg-apple-gray",
 };
 
 function fmtDuration(seconds?: number | null) {
@@ -43,7 +44,7 @@ export default function DashboardPage() {
   const agingMax = Math.max(1, ...aging.map((a) => a.avg_seconds ?? 0));
   const order = (s: string) => STAGES.indexOf(s as any);
 
-  if (loading) return <p className="text-sm text-stone-500">Loading…</p>;
+  if (loading) return <TableSkeleton />;
   if (loadError) return <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">{loadError}</p>;
 
   return (
@@ -54,7 +55,7 @@ export default function DashboardPage() {
       {!skuCounts.length ? <Empty>No batches yet.</Empty> : (
         <Card className="mb-6 overflow-x-auto p-0">
           <table className="w-full text-sm">
-            <thead className="bg-stone-50 text-left text-stone-500">
+            <thead className="bg-black/[0.025] text-left text-stone-500">
               <tr><th className="p-2">Batch</th><th>Untriaged SKUs</th>{STAGES.map((s) => <th key={s}>{s.replace("_", " ")}</th>)}<th className="w-64">Progress</th></tr>
             </thead>
             <tbody>
@@ -62,7 +63,7 @@ export default function DashboardPage() {
                 const counts = byBatch(b.batch_id);
                 const total = STAGES.reduce((n, s) => n + (counts[s] ?? 0), 0);
                 return (
-                  <tr key={b.batch_id} className="border-t border-stone-100">
+                  <tr key={b.batch_id} className="border-t border-black/[0.05]">
                     <td className="p-2 font-medium">Batch {b.batch_no}</td>
                     <td>{b.untriaged}</td>
                     {STAGES.map((s) => <td key={s}>{counts[s] ?? 0}</td>)}
@@ -84,13 +85,13 @@ export default function DashboardPage() {
           <h2 className="mb-2 font-medium">Time to complete</h2>
           <Card className="p-0">
             <table className="w-full text-sm">
-              <thead className="bg-stone-50 text-left text-stone-500"><tr><th className="p-2">Batch</th><th>Shots done</th><th>Elapsed</th></tr></thead>
+              <thead className="bg-black/[0.025] text-left text-stone-500"><tr><th className="p-2">Batch</th><th>Shots done</th><th>Elapsed</th></tr></thead>
               <tbody>
                 {ttc.map((t) => {
                   const complete = t.shots_total > 0 && t.shots_done === t.shots_total;
                   const secs = t.started_at && t.last_done_at ? (+new Date(t.last_done_at) - +new Date(t.started_at)) / 1000 : null;
                   return (
-                    <tr key={t.batch_id} className="border-t border-stone-100">
+                    <tr key={t.batch_id} className="border-t border-black/[0.05]">
                       <td className="p-2 font-medium">Batch {t.batch_no}</td>
                       <td>{t.shots_done}/{t.shots_total}</td>
                       <td>{complete ? fmtDuration(secs) : <span className="text-stone-400">in progress</span>}</td>
@@ -120,10 +121,10 @@ export default function DashboardPage() {
       {!rej.length ? <Empty>No submissions yet.</Empty> : (
         <Card className="p-0">
           <table className="w-full text-sm">
-            <thead className="bg-stone-50 text-left text-stone-500"><tr><th className="p-2">Creator</th><th>Submissions</th><th>Rejections</th><th>Rate</th></tr></thead>
+            <thead className="bg-black/[0.025] text-left text-stone-500"><tr><th className="p-2">Creator</th><th>Submissions</th><th>Rejections</th><th>Rate</th></tr></thead>
             <tbody>
               {rej.map((r) => (
-                <tr key={r.creator_id} className="border-t border-stone-100">
+                <tr key={r.creator_id} className="border-t border-black/[0.05]">
                   <td className="p-2 font-medium">{r.creator}</td><td>{r.submissions}</td><td>{r.rejections}</td>
                   <td>{r.submissions ? `${Math.round((r.rejections / r.submissions) * 100)}%` : "—"}</td>
                 </tr>

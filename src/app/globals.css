@@ -3,10 +3,90 @@
 @tailwind utilities;
 
 @layer base {
-  body { @apply bg-ivory font-sans text-stone-900 antialiased; }
-  h1, h2, h3 { font-family: var(--font-display), Georgia, serif; @apply text-maroon-900; letter-spacing: 0.005em; }
-  h2 { @apply text-xl; }
-  h3 { @apply text-lg; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    @apply bg-ivory font-sans text-stone-900 antialiased;
+    font-feature-settings: "kern", "liga", "calt";
+    text-rendering: optimizeLegibility;
+    letter-spacing: -0.003em;
+  }
+  /* Type that changes shape with size: big text tightens, leading shrinks as size grows */
+  h1, h2, h3 { font-family: theme("fontFamily.display"); @apply font-semibold text-stone-900; }
+  h1 { letter-spacing: -0.024em; line-height: 1.08; }
+  h2 { @apply text-xl; letter-spacing: -0.017em; line-height: 1.2; }
+  h3 { @apply text-lg; letter-spacing: -0.012em; line-height: 1.25; }
+  small, .text-xs { letter-spacing: 0.005em; }  /* small text gets a touch more air */
+  table { font-variant-numeric: tabular-nums; }
   ::selection { @apply bg-maroon-200 text-maroon-900; }
   input[type="checkbox"] { @apply accent-maroon-700; }
+  :focus-visible { outline: 2px solid theme("colors.maroon.500"); outline-offset: 2px; }
+  input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; }
+}
+
+@layer components {
+  /* Translucent materials. Scrim dims to focus; sheet is the floating layer. */
+  .scrim {
+    background: rgba(0, 0, 0, 0.38);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+  .sheet {
+    background: rgba(255, 255, 255, 0.9);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.65);
+    box-shadow: 0 28px 70px -14px rgba(0, 0, 0, 0.38), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+  }
+  /* Materialise in: scale + blur + fade, settling without overshoot (critically damped feel) */
+  .anim-pop { animation: pop 280ms cubic-bezier(0.2, 0.9, 0.25, 1) both; }
+  .anim-fade { animation: fade 200ms ease-out both; }
+  .glass-card {
+    background: rgba(255, 255, 255, 0.78);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.75);
+    box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.22), 0 0 0 0.5px rgba(0, 0, 0, 0.05);
+  }
+  .page-enter { animation: fade 240ms ease-out backwards; }
+  /* children rise in one after another (first ten only; the rest appear with the last) */
+  .stagger > * { animation: rise 340ms cubic-bezier(0.2, 0.9, 0.25, 1) backwards; }
+  .stagger > *:nth-child(1) { animation-delay: 0ms; }  .stagger > *:nth-child(2) { animation-delay: 35ms; }
+  .stagger > *:nth-child(3) { animation-delay: 70ms; } .stagger > *:nth-child(4) { animation-delay: 105ms; }
+  .stagger > *:nth-child(5) { animation-delay: 140ms; } .stagger > *:nth-child(6) { animation-delay: 175ms; }
+  .stagger > *:nth-child(7) { animation-delay: 210ms; } .stagger > *:nth-child(8) { animation-delay: 245ms; }
+  .stagger > *:nth-child(n+9) { animation-delay: 280ms; }
+  .skeleton {
+    background: linear-gradient(90deg, rgba(0,0,0,0.05) 25%, rgba(0,0,0,0.095) 37%, rgba(0,0,0,0.05) 63%);
+    background-size: 400% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+}
+
+/* Tables: calm hairlines, quiet header, soft row hover */
+@layer base {
+  thead th { @apply text-[0.75rem] font-medium text-stone-500; letter-spacing: 0.01em; }
+  tbody tr { transition: background-color 120ms ease-out; }
+  tbody tr:hover { background-color: rgba(0, 0, 0, 0.022); }
+}
+
+@keyframes pop { from { opacity: 0; transform: scale(0.96); filter: blur(5px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* Reduced motion = gentler, not absent: cross-fades instead of scale, no press shrink */
+@media (prefers-reduced-motion: reduce) {
+  .anim-pop, .anim-fade, .page-enter, .stagger > * { animation: fade 150ms linear both !important; animation-delay: 0ms !important; }
+  .skeleton { animation: none; }
+  * { scroll-behavior: auto !important; }
+}
+/* Reduced transparency: solid surfaces */
+@media (prefers-reduced-transparency: reduce) {
+  .scrim { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(0, 0, 0, 0.55); }
+  .sheet, .glass-card { -webkit-backdrop-filter: none; backdrop-filter: none; background: #fff; }
+  header { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; background: #fff !important; }
+}
+/* Increased contrast: defined edges */
+@media (prefers-contrast: more) {
+  .sheet { border-color: rgba(0, 0, 0, 0.55); }
 }

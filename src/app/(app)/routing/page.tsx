@@ -5,6 +5,9 @@ import { rpc } from "@/lib/api";
 import { useLiveData } from "@/lib/hooks";
 import { Badge, batchLabel, btn, btnGhost, Card, Empty, input, Msg, PageHeader, R2Image } from "@/components/ui";
 import { RefImage } from "@/components/RefImage";
+import { Select, Checkbox } from "@/components/controls";
+import { TableSkeleton } from "@/components/controls";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
 /** The approved image for a routing row: the approved version, else the latest one. */
 const approvedKey = (r: any): string | undefined => {
@@ -24,14 +27,14 @@ function CampaignTable({ rows, sel, toggle, setMany, onRelease, onPreview }: {
       <table className="w-full text-sm">
         <thead className="text-left text-stone-500">
           <tr>
-            <th className="w-8"><input type="checkbox" disabled={!waiting.length} checked={!!waiting.length && chosen.length === waiting.length} onChange={(e) => setMany(waiting, e.target.checked)} /></th>
+            <th className="w-8"><Checkbox disabled={!waiting.length} checked={!!waiting.length && chosen.length === waiting.length} onChange={(e) => setMany(waiting, e.target.checked)} /></th>
             <th>Preview</th><th>Batch</th><th>SKU</th><th>Type</th><th>Status</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.id} className="border-t border-stone-100">
-              <td className="py-2">{!r.released && <input type="checkbox" checked={sel.has(r.id)} onChange={() => toggle(r.id)} />}</td>
+            <tr key={r.id} className="border-t border-black/[0.05]">
+              <td className="py-2">{!r.released && <Checkbox checked={sel.has(r.id)} onChange={() => toggle(r.id)} />}</td>
               <td className="py-2">
                 <button type="button" title="Click to enlarge" onClick={() => onPreview(r)}>
                   <R2Image objectKey={approvedKey(r)} className="h-28 w-28 rounded border border-stone-200" />
@@ -120,12 +123,12 @@ export default function RoutingPage() {
     <>
       <PageHeader title="Routing" sub="PDP shots go to the PDP team automatically on approval. Pick which performance shots to send on, campaign by campaign." />
       <Msg error={msg.error ?? loadError} ok={msg.ok} />
-      {loading ? <p className="text-sm text-stone-500">Loading…</p> : (
+      {loading ? <TableSkeleton /> : (
         <div className="space-y-6">
           <section>
             <h2 className="mb-2 font-medium">Performance · by campaign</h2>
-            {!campaigns.size ? <Empty>Nothing assigned to performance.</Empty> : (
-              <div className="space-y-4">
+            {!campaigns.size ? <Empty hint="Choose Performance when approving a shot in Review.">Nothing assigned to performance</Empty> : (
+              <div className="stagger space-y-4">
                 {[...campaigns.entries()].map(([name, rows]) => (
                   <Card key={name}>
                     <h3 className="mb-2 font-medium">Campaign: {name} <span className="text-sm font-normal text-stone-500">· {rows.length} shot(s)</span></h3>
@@ -141,17 +144,17 @@ export default function RoutingPage() {
               <h2 className="mb-2 font-medium">Approved, no destination yet <span className="text-sm font-normal text-stone-500">· {unassigned.length}</span></h2>
               <Card>
                 <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
-                  <select className={input} value={uDest} onChange={(e) => setUDest(e.target.value as any)}>
+                  <Select className={input} value={uDest} onChange={(e) => setUDest(e.target.value as any)}>
                     <option value="pdp">PDP</option><option value="performance">Performance</option><option value="both">Both</option>
-                  </select>
+                  </Select>
                   {uDest !== "pdp" && <input className={input} placeholder="Campaign name (required)" value={uCampaign} onChange={(e) => setUCampaign(e.target.value)} />}
                   <button className={btn} disabled={!uSel.size} onClick={assign}>Assign {uSel.size || ""} selected</button>
                 </div>
                 <table className="w-full text-sm">
                   <tbody>
                     {unassigned.map((s) => (
-                      <tr key={s.id} className="border-t border-stone-100">
-                        <td className="w-8 py-1.5"><input type="checkbox" checked={uSel.has(s.id)} onChange={() => setUSel((p) => { const n = new Set(p); n.has(s.id) ? n.delete(s.id) : n.add(s.id); return n; })} /></td>
+                      <tr key={s.id} className="border-t border-black/[0.05]">
+                        <td className="w-8 py-1.5"><Checkbox checked={uSel.has(s.id)} onChange={() => setUSel((p) => { const n = new Set(p); n.has(s.id) ? n.delete(s.id) : n.add(s.id); return n; })} /></td>
                         <td>{batchLabel(s.skus.batches)}</td><td className="font-medium">{s.skus.sku_code}</td><td>{s.shot_type}</td>
                       </tr>
                     ))}
@@ -164,19 +167,19 @@ export default function RoutingPage() {
       )}
 
       {pr && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setPreview(null)}>
-          <div className="flex max-h-full w-full max-w-6xl flex-col overflow-hidden rounded-lg bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="scrim anim-fade fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setPreview(null)}>
+          <div className="flex max-h-full w-full max-w-6xl flex-col overflow-hidden rounded-2xl sheet anim-pop" onClick={(e) => e.stopPropagation()}>
             <div className="flex flex-wrap items-center gap-3 border-b border-stone-200 px-4 py-2 text-sm">
               <b className="text-base">{pr.shots.skus.sku_code}</b>
               <span className="rounded-full bg-stone-100 px-2 py-0.5">{pr.shots.shot_type}</span>
               <span className="text-stone-500">Campaign: {pr.campaign_name} · {pi + 1} of {routings.length}</span>
               <span className="flex-1" />
               {!pr.released && (
-                <label className="flex items-center gap-2"><input type="checkbox" checked={sel.has(pr.id)} onChange={() => toggle(pr.id)} /> Include in send</label>
+                <label className="flex items-center gap-2"><Checkbox checked={sel.has(pr.id)} onChange={() => toggle(pr.id)} /> Include in send</label>
               )}
-              <button className={btnGhost} disabled={pi <= 0} onClick={() => setPreview(routings[pi - 1].id)}>←</button>
-              <button className={btnGhost} disabled={pi >= routings.length - 1} onClick={() => setPreview(routings[pi + 1].id)}>→</button>
-              <button className={btnGhost} onClick={() => setPreview(null)}>✕</button>
+              <button className={btnGhost} disabled={pi <= 0} onClick={() => setPreview(routings[pi - 1].id)}><ChevronLeft size={16} /></button>
+              <button className={btnGhost} disabled={pi >= routings.length - 1} onClick={() => setPreview(routings[pi + 1].id)}><ChevronRight size={16} /></button>
+              <button className={btnGhost} onClick={() => setPreview(null)}><X size={16} /></button>
             </div>
             <div className="grid min-h-0 flex-1 grid-cols-2 gap-px bg-stone-300">
               <div className="bg-white p-2"><p className="mb-1 text-xs text-stone-500">Approved image</p><R2Image objectKey={approvedKey(pr)} className="h-[68vh] w-full" /></div>

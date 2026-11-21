@@ -4,6 +4,9 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { useLiveData } from "@/lib/hooks";
 import { batchLabel, Card, Empty, Msg, PageHeader, R2Image } from "@/components/ui";
 import { REJECT_REASONS } from "@/lib/constants";
+import { TableSkeleton } from "@/components/controls";
+import { ArrowUpRight } from "lucide-react";
+import { MessageSquare } from "lucide-react";
 
 const reasonLabel = (v: string) => REJECT_REASONS.find((r) => r.value === v)?.label ?? v;
 const ago = (t: string) => new Date(t).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -38,8 +41,8 @@ export default function SentBackPage() {
     <>
       <PageHeader title="Sent back" sub={`${rows.length} shot(s) waiting on the creator${replies ? ` · ${replies} with a new comment` : ""}`} />
       <Msg error={loadError} />
-      {loading ? <p className="text-sm text-stone-500">Loading…</p> : !rows.length ? <Empty>Nothing is waiting on a creator.</Empty> : (
-        <div className="space-y-3">
+      {loading ? <TableSkeleton /> : !rows.length ? <Empty hint="Shots the reviewer sends back appear here.">Nothing is waiting on a creator</Empty> : (
+        <div className="stagger space-y-3">
           {rows.map((r) => (
             <a key={r.id} href={`/shots/${r.id}`} target="_blank" rel="noopener noreferrer" className="block">
               <Card className="flex items-center gap-4 transition hover:border-maroon-300">
@@ -56,11 +59,11 @@ export default function SentBackPage() {
                   </p>
                   {r.lastComment && (
                     <p className="mt-1 truncate text-stone-600">
-                      💬 <b>{r.lastComment.author?.full_name || r.lastComment.author?.email}</b> · {ago(r.lastComment.created_at)}: {r.lastComment.body}
+                      <MessageSquare size={13} className="mr-1 inline -translate-y-px" /><b>{r.lastComment.author?.full_name || r.lastComment.author?.email}</b> · {ago(r.lastComment.created_at)}: {r.lastComment.body}
                     </p>
                   )}
                 </div>
-                <span className="text-sm text-maroon-700">Open ↗</span>
+                <span className="text-sm text-maroon-700">Open <ArrowUpRight size={14} className="inline" /></span>
               </Card>
             </a>
           ))}
