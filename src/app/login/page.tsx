@@ -18,6 +18,13 @@ const SIGNUP_ROLES = [
 const pill =
   "h-11 w-full rounded-full bg-[#F2F2F4] px-5 text-[0.9375rem] text-stone-900 placeholder:text-stone-400 outline-none transition-[background-color,box-shadow] duration-150 focus:bg-white focus:shadow-[inset_0_0_0_1.5px_rgba(155,28,49,0.55),0_0_0_4px_rgba(155,28,49,0.12)]";
 
+const GemMark = ({ className = "" }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" className={className} aria-hidden>
+    <path fill="currentColor" d="M6.3 3h11.4c.4 0 .8.2 1 .5l3.1 4.5c.3.4.3 1 0 1.4l-9.1 11.4a1 1 0 0 1-1.6 0L1.9 9.4a1.1 1.1 0 0 1 0-1.4l3.4-4.5c.2-.3.6-.5 1-.5Z" />
+    <path d="M2 8.5h20M9.2 3.2 7.4 8.5 12 20.6M14.8 3.2l1.8 5.3L12 20.6" fill="none" stroke="#fff" strokeOpacity=".55" strokeWidth="1" strokeLinejoin="round" />
+  </svg>
+);
+
 const GoogleG = () => (
   <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
     <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z" />
@@ -71,12 +78,12 @@ export default function LoginPage() {
         {/* form */}
         <div className="flex items-center justify-center px-5 py-10 sm:px-10">
           <div className="stagger w-full max-w-[19.5rem] text-center">
-            <p className="flex items-center justify-center gap-1.5 text-[1.0625rem] font-semibold tracking-[-0.01em] text-maroon-700">
-              <Gem size={17} strokeWidth={2} aria-hidden /> Tanishq Creative Portal
-            </p>
+            <GemMark className="mx-auto h-9 w-9 text-stone-900" />
 
-            <h1 className="mt-5 text-[2.25rem] font-semibold leading-[1.05] tracking-[-0.034em]">
-              {mode === "in" ? "Welcome back" : "Create your account"}
+            {/* the name itself is the headline: two tones, the second word lighter */}
+            <h1 className="mt-4 text-[clamp(1.875rem,8.5vw,2.5rem)] leading-[1.04] tracking-[-0.038em]">
+              <span className="block font-semibold text-stone-900">Tanishq</span>
+              <span className="block font-normal text-stone-600">Creative Portal</span>
             </h1>
 
             <div className="mt-7">
@@ -123,7 +130,7 @@ export default function LoginPage() {
         </div>
 
         {/* photograph with floating glass labels (hidden on small screens) */}
-        <div className="relative hidden min-h-[36rem] overflow-hidden rounded-[1.5rem] md:block">
+        <div className="relative hidden aspect-[736/920] overflow-hidden rounded-[1.5rem] md:block">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/login-hero.jpg" alt="Tanishq rose-gold necklace and earrings" fetchPriority="high"
             className="absolute inset-0 h-full w-full object-cover object-[50%_46%]" />

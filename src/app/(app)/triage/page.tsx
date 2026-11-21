@@ -102,7 +102,7 @@ export default function TriagePage() {
 
   return (
     <>
-      <PageHeader title="Triage" sub="Pick shot types, creator and batch per SKU. Confirming locks the SKU's batch permanently.">
+      <PageHeader title="Triage" sub="Choose shot types, a creator and a batch. Confirming locks the batch.">
         <button className={btn} disabled={busy || !ready.length} onClick={confirm}>Confirm {ready.length} ready</button>
       </PageHeader>
       <Msg error={msg.error ?? loadError} ok={msg.ok} />
@@ -126,7 +126,7 @@ export default function TriagePage() {
         <button className={btnGhost} disabled={!selected.length || !bulkCreator} onClick={() => patch(selected, { creator_id: bulkCreator })}>Set creator</button>
       </Card>
 
-      {loading ? <TableSkeleton /> : !skus.length ? <Empty hint="New SKUs appear here after an upload or when SKUs are pasted in.">Nothing waiting for triage</Empty> : (
+      {loading ? <TableSkeleton /> : !skus.length ? <Empty tone="success" hint="New SKUs appear here after an upload or when SKUs are pasted in.">All caught up</Empty> : (
         <Card className="overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead className="bg-black/[0.025] text-left text-stone-500">

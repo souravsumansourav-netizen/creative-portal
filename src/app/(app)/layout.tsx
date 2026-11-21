@@ -9,7 +9,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <>
       <Nav role={profile.role} name={profile.full_name || profile.email || "User"} />
       {profile.role === "admin" && <StorageAlert />}
-      <main className="mx-auto max-w-7xl px-4 py-6"><PageTransition>{children}</PageTransition></main>
+      <main className="mx-auto max-w-7xl px-4 pb-16 pt-8"><PageTransition>{children}</PageTransition></main>
     </>
   );
 }

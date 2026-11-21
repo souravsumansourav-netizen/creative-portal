@@ -65,7 +65,7 @@ export default function UploadPage() {
 
   return (
     <>
-      <PageHeader title="Upload SKUs" sub="Add SKUs from an Excel/CSV file, or paste them in. All SKUs start in Batch 1 until the approver triages them." />
+      <PageHeader title="Upload SKUs" sub="From a file, or pasted in. New SKUs wait in Batch 1 for triage." />
       <div className="mb-4">
         <Segmented value={mode} onChange={setMode} options={[{ value: "excel" as const, label: "Excel / CSV file" }, { value: "paste" as const, label: "Paste SKUs" }]} />
       </div>
@@ -96,7 +96,7 @@ export default function UploadPage() {
       )}
       <Msg error={msg.error ?? loadError} ok={msg.ok} />
 
-      <h2 className="mb-2 font-medium">My uploads</h2>
+      {(loading || uploads.length > 0) && <h2 className="mb-3 text-[1.0625rem] font-semibold">My uploads</h2>}
       {loading ? <TableSkeleton /> : !uploads.length ? <Empty hint="Upload a file or paste SKUs above to get started.">No uploads yet</Empty> : (
         <div className="stagger space-y-4">
           {uploads.map((u) => {

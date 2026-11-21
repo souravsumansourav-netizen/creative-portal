@@ -20,7 +20,9 @@ const OPTIONS: { mode: ViewMode; title: string; sub: string; detail: string }[] 
 export function ViewModeDialog({ current, onClose }: { current: ViewMode | null; onClose?: () => void }) {
   return (
     <div className="scrim anim-fade fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="view-mode-title">
-      <div className="sheet anim-pop w-full max-w-xl rounded-3xl p-7">
+      <div className="sheet anim-pop relative w-full max-w-xl overflow-hidden rounded-3xl p-7">
+        <div aria-hidden className="aurora aurora-soft pointer-events-none absolute inset-x-0 top-0 h-44 [mask-image:linear-gradient(to_bottom,black,transparent)]" />
+        <div className="relative">
         <h2 id="view-mode-title" className="text-[1.75rem] font-semibold tracking-[-0.024em]">How would you like to browse?</h2>
         <p className="mb-5 mt-1.5 text-[0.9375rem] text-stone-500">Choose a role for this session. You can switch any time from the menu bar.</p>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -37,6 +39,7 @@ export function ViewModeDialog({ current, onClose }: { current: ViewMode | null;
         {current && onClose && (
           <button className="mt-4 text-sm text-stone-500 underline-offset-4 hover:underline" onClick={onClose}>Keep current view</button>
         )}
+        </div>
       </div>
     </div>
   );

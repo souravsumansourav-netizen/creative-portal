@@ -58,7 +58,7 @@ export default function OutputPage({ params }: { params: Promise<{ dest: string 
 
   return (
     <>
-      <PageHeader title={dest === "pdp" ? "PDP uploads" : "Performance uploads"} sub="Download a batch, upload it to the destination system, then mark items done." />
+      <PageHeader title={dest === "pdp" ? "PDP uploads" : "Performance uploads"} sub="Download a batch, then mark items done." />
       <Msg error={msg.error ?? loadError} ok={msg.ok} />
       {loading ? <TableSkeleton /> : !groups.size ? <Empty hint="Approved shots appear here once they are sent to this team.">Nothing routed here yet</Empty> : (
         <div className="stagger space-y-5">

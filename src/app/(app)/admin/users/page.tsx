@@ -25,25 +25,24 @@ export default function AdminUsersPage() {
 
   return (
     <>
-      <PageHeader title="Users" sub="New sign-ups default to 'creator' (the very first user becomes admin)." />
+      <PageHeader title="Users" sub="People choose their role when they sign up. Change it here." />
       <Msg error={msg.error ?? loadError} ok={msg.ok} />
-      {loading ? <TableSkeleton /> : !users.length ? <Empty>No users.</Empty> : (
-        <Card className="p-0">
-          <table className="w-full text-sm">
-            <thead className="bg-black/[0.025] text-left text-stone-500"><tr><th className="p-2">Name</th><th>Email</th><th>Role</th></tr></thead>
-            <tbody>
-              {users.map((u) => (
-                <tr key={u.id} className="border-t border-black/[0.05]">
-                  <td className="p-2">{u.full_name || "—"}</td><td>{u.email}</td>
-                  <td>
-                    <Select className={input} value={u.role} onChange={(e) => setRole(u.id, e.target.value)}>
-                      {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                    </Select>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {loading ? <TableSkeleton /> : !users.length ? <Empty>No users yet</Empty> : (
+        <Card className="divide-y divide-black/[0.06] p-0">
+          {users.map((u) => (
+            <div key={u.id} className="flex items-center gap-4 px-5 py-3.5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/[0.06] text-[0.75rem] font-semibold text-stone-700">
+                {(u.full_name || u.email || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w: string) => w[0]).join("").toUpperCase()}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[0.9375rem] font-medium text-stone-900">{u.full_name || "No name"}</p>
+                <p className="truncate text-sm text-stone-500">{u.email}</p>
+              </div>
+              <Select className={`${input} w-44`} value={u.role} onChange={(e) => setRole(u.id, e.target.value)}>
+                {ROLES.map((r) => <option key={r} value={r}>{r.replace("_", " ")}</option>)}
+              </Select>
+            </div>
+          ))}
         </Card>
       )}
     </>

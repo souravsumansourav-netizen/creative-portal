@@ -42,39 +42,40 @@ export default function AdminBatchesPage() {
 
   return (
     <>
-      <PageHeader title="Batch management" sub="Deleting a batch permanently removes its SKUs, shots, versions, routings and R2 images." />
+      <PageHeader title="Batch management" sub="Deleting a batch permanently removes its SKUs and images." />
       <Msg error={msg.error ?? loadError} ok={msg.ok} />
-      <Card className="mb-4">
-        <div className="mb-1 flex justify-between text-sm">
-          <span className="font-medium">Image storage</span>
-          <span className={used >= STORAGE_ALERT_BYTES ? "font-semibold text-red-700" : "text-stone-600"}>
-            {formatBytes(used)} of {formatBytes(STORAGE_LIMIT_BYTES)} · alert at {formatBytes(STORAGE_ALERT_BYTES)}
+      <Card className="mb-6">
+        <div className="mb-2 flex items-baseline justify-between">
+          <span className="text-[0.9375rem] font-medium">Image storage</span>
+          <span className={`text-sm tabular-nums ${used >= STORAGE_ALERT_BYTES ? "font-semibold text-ink-red" : "text-stone-500"}`}>
+            {formatBytes(used)} of {formatBytes(STORAGE_LIMIT_BYTES)}
           </span>
         </div>
-        <div className="relative h-3 overflow-hidden rounded bg-stone-100">
-          <div className={`h-3 ${used >= STORAGE_ALERT_BYTES ? "bg-apple-red" : "bg-apple-green"}`} style={{ width: `${Math.min(100, (used / STORAGE_LIMIT_BYTES) * 100)}%` }} />
+        <div className="h-1.5 overflow-hidden rounded-full bg-black/[0.07]">
+          <div className={`h-1.5 rounded-full transition-[width] duration-500 ${used >= STORAGE_ALERT_BYTES ? "bg-apple-red" : "bg-apple-green"}`} style={{ width: `${Math.min(100, (used / STORAGE_LIMIT_BYTES) * 100)}%` }} />
         </div>
-        <p className="mt-1 text-xs text-stone-500">Counts stored images only (not temporary uploads or source Excel files). Delete finished batches to free space.</p>
+        <p className="mt-2 text-xs text-stone-500">Stored images only. You&apos;re alerted at {formatBytes(STORAGE_ALERT_BYTES)}.</p>
       </Card>
-      {loading ? <TableSkeleton /> : !batches.length ? <Empty>No batches.</Empty> : (
-        <Card className="p-0">
-          <table className="w-full text-sm">
-            <thead className="bg-black/[0.025] text-left text-stone-500"><tr><th className="p-2">Batch</th><th>SKUs</th><th>Untriaged</th><th>Images</th><th>Size</th><th /></tr></thead>
-            <tbody>
-              {batches.map((b) => (
-                <tr key={b.batch_id} className="border-t border-black/[0.05]">
-                  <td className="p-2 font-medium">{label(b)}{b.name && <span className="ml-2 text-stone-500">{b.name}</span>}</td>
-                  <td>{b.skus}</td><td>{b.untriaged}</td><td>{b.images}</td><td>{formatBytes(b.bytes)}</td>
-                  <td className="p-2 text-right"><button className={btnDanger} onClick={() => { setTarget(b); setTyped(""); }}>Delete…</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+      {loading ? <TableSkeleton /> : !batches.length ? <Empty>No batches yet</Empty> : (
+        <Card className="divide-y divide-black/[0.06] p-0">
+          {batches.map((b) => (
+            <div key={b.batch_id} className="flex items-center gap-4 px-5 py-3.5">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[0.9375rem] font-medium text-stone-900">{label(b)}{b.name && <span className="ml-2 font-normal text-stone-500">{b.name}</span>}</p>
+                <p className="text-sm tabular-nums text-stone-500">
+                  {b.skus} SKU{b.skus === 1 ? "" : "s"}{b.untriaged ? ` · ${b.untriaged} untriaged` : ""} · {b.images} image{b.images === 1 ? "" : "s"} · {formatBytes(b.bytes)}
+                </p>
+              </div>
+              <button className="rounded-[10px] bg-apple-red/10 px-3.5 py-2 text-[0.875rem] font-medium text-ink-red transition-[background-color,transform] duration-150 hover:bg-apple-red/[0.16] active:scale-[0.97]"
+                onClick={() => { setTarget(b); setTyped(""); }}>Delete…</button>
+            </div>
+          ))}
         </Card>
       )}
 
       {target && (
-        <div className="scrim anim-fade fixed inset-0 z-10 flex items-center justify-center p-4">
+        <div className="scrim anim-fade fixed inset-0 z-50 flex items-center justify-center p-4">
           <Card className="sheet anim-pop w-full max-w-md !rounded-2xl">
             <h2 className="mb-2 text-lg font-semibold text-red-700">Delete {label(target)}?</h2>
             <p className="mb-3 text-sm text-stone-600">

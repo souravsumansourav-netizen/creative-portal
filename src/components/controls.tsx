@@ -245,11 +245,11 @@ export function FilePicker({ files, onFiles, accept, multiple = false, disabled 
       onDragOver={(e) => { e.preventDefault(); if (!disabled) setOver(true); }}
       onDragLeave={() => setOver(false)}
       onDrop={(e) => { e.preventDefault(); setOver(false); if (!disabled) onFiles(multiple ? [...e.dataTransfer.files] : [...e.dataTransfer.files].slice(0, 1)); }}
-      className={`flex items-center gap-3 rounded-xl border border-dashed px-4 py-2.5 text-left transition-colors duration-150 ${over ? "border-maroon-500 bg-maroon-50" : "border-black/15 bg-white/70 hover:border-black/30"} ${disabled ? "opacity-50" : ""} ${className}`}
+      className={`flex items-center gap-3 rounded-xl px-4 py-3 text-left transition-[background-color,box-shadow] duration-150 ${over ? "bg-maroon-50 shadow-[inset_0_0_0_1.5px_rgba(155,28,49,0.5)]" : "bg-black/[0.035] hover:bg-black/[0.055]"} ${disabled ? "opacity-50" : ""} ${className}`}
     >
       <input ref={input} type="file" accept={accept} multiple={multiple} disabled={disabled} className="hidden"
         onChange={(e) => onFiles([...(e.target.files ?? [])])} />
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-maroon-700/10 text-maroon-700"><UploadCloud size={18} /></span>
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-stone-500 shadow-[0_0_0_0.5px_rgba(0,0,0,0.08)]"><UploadCloud size={18} /></span>
       <button type="button" disabled={disabled} onClick={() => input.current?.click()} className="min-w-0 text-left">
         <span className="block text-[0.9375rem] font-medium text-stone-900">{summary ?? label}</span>
         <span className="block truncate text-xs text-stone-500">{summary ? "Click to change, or drop other files" : hint ?? "Click or drop here"}</span>

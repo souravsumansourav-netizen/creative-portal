@@ -121,7 +121,7 @@ export default function RoutingPage() {
 
   return (
     <>
-      <PageHeader title="Routing" sub="PDP shots go to the PDP team automatically on approval. Pick which performance shots to send on, campaign by campaign." />
+      <PageHeader title="Routing" sub="PDP shots go out on approval. Choose which performance shots to send, campaign by campaign." />
       <Msg error={msg.error ?? loadError} ok={msg.ok} />
       {loading ? <TableSkeleton /> : (
         <div className="space-y-6">

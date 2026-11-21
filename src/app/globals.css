@@ -55,6 +55,19 @@
   .stagger > *:nth-child(5) { animation-delay: 140ms; } .stagger > *:nth-child(6) { animation-delay: 175ms; }
   .stagger > *:nth-child(7) { animation-delay: 210ms; } .stagger > *:nth-child(8) { animation-delay: 245ms; }
   .stagger > *:nth-child(n+9) { animation-delay: 280ms; }
+  /* Apple's colour field: lavender, pink and apricot melting into a pale blush. Text on it stays near-black. */
+  .aurora { position: relative; isolation: isolate; overflow: hidden; background: #F6F0F5; }
+  .aurora::before {
+    content: ""; position: absolute; inset: -25%; z-index: -1; will-change: transform;
+    background:
+      radial-gradient(38% 56% at 10% 90%, #C6A4FA 0%, rgba(198, 164, 250, 0) 100%),
+      radial-gradient(34% 50% at 42% 96%, #F79BF0 0%, rgba(247, 155, 240, 0) 100%),
+      radial-gradient(42% 62% at 94% 64%, #FFC964 0%, rgba(255, 201, 100, 0) 100%),
+      radial-gradient(32% 44% at 70% 14%, #FFE5AE 0%, rgba(255, 229, 174, 0) 100%),
+      radial-gradient(34% 44% at 6% 8%, #E9DCF8 0%, rgba(233, 220, 248, 0) 100%);
+    animation: aurora-drift 28s ease-in-out infinite alternate;
+  }
+  .aurora-soft::before { opacity: 0.55; }
   .skeleton {
     background: linear-gradient(90deg, rgba(0,0,0,0.05) 25%, rgba(0,0,0,0.095) 37%, rgba(0,0,0,0.05) 63%);
     background-size: 400% 100%;
@@ -72,12 +85,14 @@
 @keyframes pop { from { opacity: 0; transform: scale(0.96); filter: blur(5px); } to { opacity: 1; transform: none; filter: none; } }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@keyframes aurora-drift { from { transform: translate3d(-2.5%, -1.5%, 0) scale(1); } to { transform: translate3d(2.5%, 2%, 0) scale(1.07); } }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 
 /* Reduced motion = gentler, not absent: cross-fades instead of scale, no press shrink */
 @media (prefers-reduced-motion: reduce) {
   .anim-pop, .anim-fade, .page-enter, .stagger > * { animation: fade 150ms linear both !important; animation-delay: 0ms !important; }
   .skeleton { animation: none; }
+  .aurora::before { animation: none; }
   * { scroll-behavior: auto !important; }
 }
 /* Reduced transparency: solid surfaces */
@@ -89,4 +104,5 @@
 /* Increased contrast: defined edges */
 @media (prefers-contrast: more) {
   .sheet { border-color: rgba(0, 0, 0, 0.55); }
+  .aurora::before { opacity: 0.35; }
 }

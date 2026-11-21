@@ -41,7 +41,7 @@ export default function SentBackPage() {
     <>
       <PageHeader title="Sent back" sub={`${rows.length} shot(s) waiting on the creator${replies ? ` · ${replies} with a new comment` : ""}`} />
       <Msg error={loadError} />
-      {loading ? <TableSkeleton /> : !rows.length ? <Empty hint="Shots the reviewer sends back appear here.">Nothing is waiting on a creator</Empty> : (
+      {loading ? <TableSkeleton /> : !rows.length ? <Empty tone="success" hint="Shots the reviewer sends back appear here.">Nothing is waiting on a creator</Empty> : (
         <div className="stagger space-y-3">
           {rows.map((r) => (
             <a key={r.id} href={`/shots/${r.id}`} target="_blank" rel="noopener noreferrer" className="block">

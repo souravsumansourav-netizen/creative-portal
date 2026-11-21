@@ -87,7 +87,7 @@ export default function ProductionPage() {
 
   return (
     <>
-      <PageHeader title="Production" sub="Upload one image per shot, or drop many at once named after the SKU code. JPEG only." />
+      <PageHeader title="Production" sub="One image per shot, or many named after the SKU code. JPEG only." />
       <Msg error={msg.error ?? loadError} ok={msg.ok} />
       {errors.length > 0 && (
         <Card className="mb-4 border-red-200 bg-red-50">
@@ -265,7 +265,7 @@ function SummaryCards({ shots, filter, onFilter }: { shots: any[]; filter: Filte
   ];
 
   return (
-    <div className="mb-5">
+    <div className="aurora aurora-soft mb-6 rounded-[1.75rem] p-4 sm:p-5">
       <div className="stagger grid grid-cols-2 gap-3 lg:grid-cols-4">
         {cards.map((c) => {
           const Tag = c.key ? "button" : "div";

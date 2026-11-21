@@ -1,8 +1,9 @@
 "use client";
+import Link from "next/link";
 import { useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { useLiveData } from "@/lib/hooks";
-import { Card, Empty, PageHeader } from "@/components/ui";
+import { Card, Empty } from "@/components/ui";
 import { STAGES } from "@/lib/constants";
 import { TableSkeleton } from "@/components/controls";
 
@@ -47,9 +48,29 @@ export default function DashboardPage() {
   if (loading) return <TableSkeleton />;
   if (loadError) return <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">{loadError}</p>;
 
+  // the one sentence that matters right now, and the one button that acts on it
+  const sum = (key: string) => stage.filter((s) => s.stage === key).reduce((n, s) => n + (s.shots ?? 0), 0);
+  const awaiting = sum("in_review");
+  const untriaged = skuCounts.reduce((n, b) => n + (b.untriaged ?? 0), 0);
+  const withCreators = sum("in_production");
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const hero =
+    awaiting > 0 ? { line: `${plural(awaiting, "shot")} waiting for review.`, cta: "Open review", href: "/review" }
+    : untriaged > 0 ? { line: `${plural(untriaged, "SKU")} waiting for triage.`, cta: "Open triage", href: "/triage" }
+    : withCreators > 0 ? { line: "You're all caught up.", cta: "View library", href: "/library" }
+    : { line: "Nothing in the pipeline yet.", cta: "Open triage", href: "/triage" };
+
   return (
     <>
-      <PageHeader title="Dashboard" sub={updated ? `Live · updated ${updated.toLocaleTimeString()}` : undefined} />
+      <section className="aurora mb-10 rounded-[2rem] px-6 py-14 text-center sm:py-16">
+        <p className="text-[0.9375rem] font-medium text-stone-600">Dashboard</p>
+        <h1 className="mx-auto mt-2 max-w-3xl text-[2.5rem] font-semibold leading-[1.02] tracking-[-0.04em] text-stone-900 sm:text-[3.5rem]">{hero.line}</h1>
+        {updated && <p className="mt-3 text-[1.0625rem] text-stone-600">Live · updated {updated.toLocaleTimeString()}</p>}
+        <Link href={hero.href}
+          className="mt-8 inline-flex h-12 items-center rounded-full bg-stone-900 px-7 text-[1.0625rem] font-medium text-white transition-[background-color,transform] duration-150 hover:bg-stone-700 active:scale-[0.97] motion-reduce:active:scale-100">
+          {hero.cta}
+        </Link>
+      </section>
 
       <h2 className="mb-2 font-medium">Batch stage tracker</h2>
       {!skuCounts.length ? <Empty>No batches yet.</Empty> : (

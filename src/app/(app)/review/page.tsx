@@ -9,7 +9,7 @@ import { REJECT_REASONS, referenceUrl } from "@/lib/constants";
 import { Select } from "@/components/controls";
 import { TableSkeleton } from "@/components/controls";
 import { Segmented } from "@/components/controls";
-import { ArrowUpRight, ChevronLeft, ChevronRight, Download, X } from "lucide-react";
+import { ArrowUpRight, Check, ChevronLeft, ChevronRight, Download, X } from "lucide-react";
 import { MessageSquare } from "lucide-react";
 
 const reasonLabel = (v: string) => REJECT_REASONS.find((r) => r.value === v)?.label ?? v;
@@ -106,10 +106,19 @@ export default function ReviewPage() {
   if (!cur || !v) {
     return (
       <Shell>
-        <div className="m-auto text-center">
-          <p className="mb-3 text-stone-600">{loadError ?? "Nothing to review right now."}</p>
-          <Link href="/dashboard" className={btnGhost}><ChevronLeft size={15} /> Back to portal</Link>
-        </div>
+        {loadError ? (
+          <div className="m-auto text-center">
+            <p className="mb-3 text-stone-600">{loadError}</p>
+            <Link href="/dashboard" className={btnGhost}><ChevronLeft size={15} /> Back to portal</Link>
+          </div>
+        ) : (
+          <div className="aurora m-auto w-[min(34rem,92vw)] rounded-[2rem] px-8 py-16 text-center">
+            <span className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-white/80 text-stone-800 shadow-[0_4px_16px_-6px_rgba(0,0,0,0.25)]"><Check size={26} strokeWidth={2.25} /></span>
+            <h2 className="text-[1.75rem] font-semibold tracking-[-0.028em]">You&apos;re all caught up</h2>
+            <p className="mt-1.5 text-[1.0625rem] text-stone-600">Nothing to review right now.</p>
+            <Link href="/dashboard" className="mt-7 inline-flex h-11 items-center rounded-full bg-stone-900 px-6 text-[0.9375rem] font-medium text-white transition-[background-color,transform] duration-150 hover:bg-stone-700 active:scale-[0.97]">Back to portal</Link>
+          </div>
+        )}
       </Shell>
     );
   }

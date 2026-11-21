@@ -116,7 +116,7 @@ export default function RenameImagesPage() {
 
   return (
     <>
-      <PageHeader title="Rename images" sub="Pick a folder of images and get a ZIP back with every file name in capital letters (4jklm.jpg → 4JKLM.jpg)." />
+      <PageHeader title="Rename images" sub="File names go to capitals: 4jklm.jpg becomes 4JKLM.jpg." />
       <Msg error={msg.error} ok={msg.ok} />
 
       <div
