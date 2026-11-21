@@ -32,7 +32,7 @@ export function Nav({ role, name }: { role: Role; name: string }) {
     <header className="border-b border-black/[0.08] bg-white/75 text-stone-900 backdrop-blur-xl backdrop-saturate-150">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-6 px-4 py-3">
         <span className="flex items-center gap-2 font-display text-[1.0625rem] font-semibold tracking-[-0.01em] text-stone-900">
-          <span className="text-maroon-700" aria-hidden>◆</span> Creative Portal
+          <span className="text-maroon-700" aria-hidden>◆</span> Tanishq Creative Portal
         </span>
         <nav className="flex flex-wrap gap-1">
           {items.map((n) => (

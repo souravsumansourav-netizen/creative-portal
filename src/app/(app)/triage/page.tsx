@@ -7,7 +7,8 @@ import { batchLabel, btn, btnGhost, Card, Empty, input, Msg, PageHeader } from "
 import { RefImage } from "@/components/RefImage";
 import { Select, Checkbox } from "@/components/controls";
 import { TableSkeleton } from "@/components/controls";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, X } from "lucide-react";
+import { Dialog } from "@/components/Dialog";
 
 type Row = { shoot: { mood: boolean; model: boolean }; batch_id: string; creator_id: string };
 
@@ -23,11 +24,16 @@ export default function TriagePage() {
   const [bulkBatch, setBulkBatch] = useState("");
   const [bulkCreator, setBulkCreator] = useState("");
   const [preview, setPreview] = useState<number | null>(null); // index into skus
+  // batch naming dialogs
+  const [dlg, setDlg] = useState<null | "new" | "rename">(null);
+  const [newName, setNewName] = useState("");
+  const [moveSelected, setMoveSelected] = useState(true);
+  const [renames, setRenames] = useState<Record<string, string>>({});
 
   const { loading, error: loadError, reload } = useLiveData(async () => {
     const sb = supabaseBrowser();
     const [s, b, c] = await Promise.all([
-      sb.from("skus").select("id, sku_code, batch_id, created_at, uploads(file_name)").eq("triaged", false).order("created_at"),
+      sb.from("skus").select("id, sku_code, batch_id, created_at, uploads(file_name)").eq("triaged", false).order("created_at", { ascending: false }).order("sku_code"),
       sb.from("batches").select("*").order("batch_no"),
       sb.from("profiles").select("id, full_name, email").eq("role", "creator"),
     ]);
@@ -51,10 +57,30 @@ export default function TriagePage() {
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const ready = skus.filter((k) => { const r = rows[k.id]; return r && (r.shoot.mood || r.shoot.model) && r.creator_id; });
 
-  async function newBatch() {
+  function openNew() { setNewName(""); setMoveSelected(true); setDlg("new"); }
+  function openRename() { setRenames(Object.fromEntries(batches.map((b) => [b.id, b.name ?? ""]))); setDlg("rename"); }
+
+  async function createBatch() {
+    setMsg({});
     try {
-      const b = await rpc("create_batch", { p_name: null });
-      setBulkBatch(b.id); await reload();
+      const b = await rpc("create_batch", { p_name: newName.trim() || null });
+      if (moveSelected && selected.length) patch(selected, { batch_id: b.id });
+      setBulkBatch(b.id);
+      setMsg({ ok: `Created ${batchLabel(b)}${moveSelected && selected.length ? ` and moved ${selected.length} SKU${selected.length === 1 ? "" : "s"} into it` : ""}.` });
+      setDlg(null);
+      await reload();
+    } catch (e) { setMsg({ error: (e as Error).message }); }
+  }
+
+  async function saveRenames() {
+    const items = batches.filter((b) => (renames[b.id] ?? "") !== (b.name ?? "")).map((b) => ({ id: b.id, name: renames[b.id] ?? "" }));
+    if (!items.length) return setDlg(null);
+    setMsg({});
+    try {
+      const n = await rpc<number>("rename_batches", { p_items: items });
+      setMsg({ ok: `Renamed ${n} batch${n === 1 ? "" : "es"}.` });
+      setDlg(null);
+      await reload();
     } catch (e) { setMsg({ error: (e as Error).message }); }
   }
 
@@ -91,7 +117,8 @@ export default function TriagePage() {
           {batches.map((b) => <option key={b.id} value={b.id}>{batchLabel(b)}</option>)}
         </Select>
         <button className={btnGhost} disabled={!selected.length || !bulkBatch} onClick={() => patch(selected, { batch_id: bulkBatch })}>Set batch</button>
-        <button className={btnGhost} onClick={newBatch}>+ New batch</button>
+        <button className={btnGhost} onClick={openNew}><Plus size={15} /> New batch</button>
+        <button className={btnGhost} onClick={openRename}><Pencil size={14} /> Rename batches</button>
         <Select className={input} value={bulkCreator} onChange={(e) => setBulkCreator(e.target.value)}>
           <option value="">Creator…</option>
           {creators.map((c) => <option key={c.id} value={c.id}>{cName(c)}</option>)}
@@ -99,7 +126,7 @@ export default function TriagePage() {
         <button className={btnGhost} disabled={!selected.length || !bulkCreator} onClick={() => patch(selected, { creator_id: bulkCreator })}>Set creator</button>
       </Card>
 
-      {loading ? <TableSkeleton /> : !skus.length ? <Empty hint="New SKUs appear here after an Excel upload.">Nothing waiting for triage</Empty> : (
+      {loading ? <TableSkeleton /> : !skus.length ? <Empty hint="New SKUs appear here after an upload or when SKUs are pasted in.">Nothing waiting for triage</Empty> : (
         <Card className="overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead className="bg-black/[0.025] text-left text-stone-500">
@@ -141,6 +168,38 @@ export default function TriagePage() {
           </table>
         </Card>
       )}
+      {dlg === "new" && (
+        <Dialog title="New batch" subtitle="Give it a name your team will recognise." onClose={() => setDlg(null)}
+          footer={<><button className={btnGhost} onClick={() => setDlg(null)}>Cancel</button><button className={btn} onClick={createBatch}>Create batch</button></>}>
+          <input autoFocus className={`${input} w-full py-2.5`} placeholder="e.g. Wedding Gifting" maxLength={60} value={newName}
+            onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") createBatch(); }} />
+          {selected.length > 0 && (
+            <label className="mt-4 flex items-center gap-2 text-sm">
+              <Checkbox checked={moveSelected} onChange={(e) => setMoveSelected(e.target.checked)} />
+              Move the {selected.length} selected SKU{selected.length === 1 ? "" : "s"} into it
+            </label>
+          )}
+          <p className="mt-3 text-xs text-stone-500">It appears as “Batch N · your name”. You can rename it again any time before SKUs are confirmed.</p>
+        </Dialog>
+      )}
+
+      {dlg === "rename" && (
+        <Dialog title="Rename batches" subtitle="Edit one name or several, then save once. Leave a name blank to go back to the plain batch number."
+          width="max-w-lg" onClose={() => setDlg(null)}
+          footer={<><button className={btnGhost} onClick={() => setDlg(null)}>Cancel</button><button className={btn} onClick={saveRenames}>Save names</button></>}>
+          <div className="space-y-2">
+            {batches.map((b) => (
+              <div key={b.id} className="flex items-center gap-3">
+                <span className="w-20 shrink-0 text-sm font-medium text-stone-600">Batch {b.batch_no}</span>
+                <input className={`${input} flex-1`} placeholder="Add a name" maxLength={60} value={renames[b.id] ?? ""}
+                  onChange={(e) => setRenames((r) => ({ ...r, [b.id]: e.target.value }))} />
+              </div>
+            ))}
+            {!batches.length && <p className="text-sm text-stone-500">No batches yet.</p>}
+          </div>
+        </Dialog>
+      )}
+
       {preview !== null && skus[preview] && (() => {
         const k = skus[preview]; const r = rows[k.id];
         return (

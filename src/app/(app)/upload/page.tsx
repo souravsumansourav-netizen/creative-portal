@@ -1,17 +1,28 @@
 "use client";
-import { useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { invoke } from "@/lib/api";
+import { invoke, rpc } from "@/lib/api";
 import { useLiveData } from "@/lib/hooks";
-import { Badge, btn, Card, Empty, Msg, PageHeader } from "@/components/ui";
+import { Badge, btn, Card, Empty, input, Msg, PageHeader } from "@/components/ui";
 import { TableSkeleton } from "@/components/controls";
-import { FilePicker } from "@/components/controls";
+import { FilePicker, Segmented } from "@/components/controls";
 
 export default function UploadPage() {
   const [uploads, setUploads] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ error?: string; ok?: string }>({});
   const [file, setFile] = useState<File | null>(null);
+  const [mode, setMode] = useState<"excel" | "paste">("excel");
+  const [pasted, setPasted] = useState("");
+  const [label, setLabel] = useState("");
+
+  // split on new lines, commas, semicolons, tabs or spaces; count what will really be added
+  const parsed = useMemo(() => {
+    const all = pasted.split(/[\s,;]+/).map((c) => c.trim()).filter(Boolean);
+    const unique = new Map<string, string>();
+    for (const c of all) if (!unique.has(c.toLowerCase())) unique.set(c.toLowerCase(), c);
+    return { codes: [...unique.values()], repeats: all.length - unique.size };
+  }, [pasted]);
 
   const { loading, error: loadError, reload } = useLiveData(async () => {
     const { data, error } = await supabaseBrowser()
@@ -38,18 +49,55 @@ export default function UploadPage() {
     setBusy(false);
   }
 
+  async function onPaste() {
+    if (!parsed.codes.length) return;
+    setBusy(true); setMsg({});
+    try {
+      const r = await rpc<{ sku_count: number; duplicates_skipped: number; already_in_portal: number }>("ingest_skus", { p_codes: parsed.codes, p_label: label || null });
+      setMsg({ ok: `Added ${r.sku_count} SKU${r.sku_count === 1 ? "" : "s"} to Batch 1${r.already_in_portal ? ` (${r.already_in_portal} already existed in the portal)` : ""}. They're waiting in Triage.` });
+      setPasted(""); setLabel("");
+      reload();
+    } catch (e) {
+      setMsg({ error: (e as Error).message });
+    }
+    setBusy(false);
+  }
+
   return (
     <>
-      <PageHeader title="Upload SKUs" sub="Upload an Excel/CSV with a SKU column. All SKUs start in Batch 1 until the approver triages them." />
-      <Card className="mb-6 flex flex-wrap items-center gap-3">
-        <FilePicker className="min-w-[18rem] flex-1" files={file ? [file] : []} onFiles={(f) => setFile(f[0] ?? null)} accept=".xlsx,.xls,.csv" disabled={busy}
-          label="Choose an Excel or CSV file" hint="Needs a SKU column. Drop it here or click." />
-        <button className={btn} disabled={busy || !file} onClick={onUpload}>{busy ? "Uploading…" : "Upload"}</button>
-      </Card>
+      <PageHeader title="Upload SKUs" sub="Add SKUs from an Excel/CSV file, or paste them in. All SKUs start in Batch 1 until the approver triages them." />
+      <div className="mb-4">
+        <Segmented value={mode} onChange={setMode} options={[{ value: "excel" as const, label: "Excel / CSV file" }, { value: "paste" as const, label: "Paste SKUs" }]} />
+      </div>
+
+      {mode === "excel" ? (
+        <Card className="mb-6 flex flex-wrap items-center gap-3">
+          <FilePicker className="min-w-[18rem] flex-1" files={file ? [file] : []} onFiles={(f) => setFile(f[0] ?? null)} accept=".xlsx,.xls,.csv" disabled={busy}
+            label="Choose an Excel or CSV file" hint="Needs a SKU column. Drop it here or click." />
+          <button className={btn} disabled={busy || !file} onClick={onUpload}>{busy ? "Uploading…" : "Upload"}</button>
+        </Card>
+      ) : (
+        <Card className="mb-6">
+          <label className="mb-1.5 block text-sm font-medium text-stone-700" htmlFor="paste-skus">SKU codes</label>
+          <textarea id="paste-skus" rows={7} disabled={busy} value={pasted} onChange={(e) => setPasted(e.target.value)}
+            placeholder={"Paste one SKU, or many: one per line, or separated by commas or spaces.\n\n50D6C4BWJLAP1\n50D4I2FGJAA2A, 50K5H4PEOAAA2A"}
+            className={`${input} w-full resize-y font-mono text-[0.875rem] leading-relaxed`} spellCheck={false} />
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <input className={`${input} min-w-[14rem] flex-1`} placeholder="Label this upload (optional), e.g. Diwali drop" maxLength={80}
+              value={label} onChange={(e) => setLabel(e.target.value)} disabled={busy} />
+            <span className="text-sm text-stone-500 tabular-nums">
+              {parsed.codes.length ? <><b className="text-stone-900">{parsed.codes.length}</b> SKU{parsed.codes.length === 1 ? "" : "s"} detected{parsed.repeats ? ` · ${parsed.repeats} repeat${parsed.repeats === 1 ? "" : "s"} ignored` : ""}</> : "Nothing pasted yet"}
+            </span>
+            <button className={btn} disabled={busy || !parsed.codes.length} onClick={onPaste}>
+              {busy ? "Adding…" : parsed.codes.length ? `Add ${parsed.codes.length} SKU${parsed.codes.length === 1 ? "" : "s"}` : "Add SKUs"}
+            </button>
+          </div>
+        </Card>
+      )}
       <Msg error={msg.error ?? loadError} ok={msg.ok} />
 
       <h2 className="mb-2 font-medium">My uploads</h2>
-      {loading ? <TableSkeleton /> : !uploads.length ? <Empty hint="Choose an Excel or CSV file above to get started.">No uploads yet</Empty> : (
+      {loading ? <TableSkeleton /> : !uploads.length ? <Empty hint="Upload a file or paste SKUs above to get started.">No uploads yet</Empty> : (
         <div className="stagger space-y-4">
           {uploads.map((u) => {
             const shots = u.skus.flatMap((s: any) => s.shots);

@@ -6,7 +6,7 @@ import { Toaster } from "sonner";
 // Inter is the fallback for non-Apple devices; Apple devices use SF Pro via the system stack.
 const sans = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
-export const metadata: Metadata = { title: "Creative Approval Portal" };
+export const metadata: Metadata = { title: "Tanishq Creative Portal" };
 export const viewport: Viewport = { themeColor: "#F5F5F7" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
