@@ -9,6 +9,8 @@ import { Select, Checkbox } from "@/components/controls";
 import { TableSkeleton } from "@/components/controls";
 import { ChevronLeft, ChevronRight, Pencil, Plus, X } from "lucide-react";
 import { Dialog } from "@/components/Dialog";
+import { CategoryChips } from "@/components/CategoryChips";
+import { categoryCounts, categoryOf } from "@/lib/skuCategory";
 
 type Row = { shoot: { mood: boolean; model: boolean }; batch_id: string; creator_id: string };
 
@@ -23,7 +25,8 @@ export default function TriagePage() {
   // bulk-apply controls
   const [bulkBatch, setBulkBatch] = useState("");
   const [bulkCreator, setBulkCreator] = useState("");
-  const [preview, setPreview] = useState<number | null>(null); // index into skus
+  const [preview, setPreview] = useState<number | null>(null); // index into the visible list
+  const [cat, setCat] = useState("all"); // category filter ("all" or a group name)
   // batch naming dialogs
   const [dlg, setDlg] = useState<null | "new" | "rename">(null);
   const [newName, setNewName] = useState("");
@@ -55,7 +58,20 @@ export default function TriagePage() {
 
   const selected = [...sel];
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const ready = skus.filter((k) => { const r = rows[k.id]; return r && (r.shoot.mood || r.shoot.model) && r.creator_id; });
+  // category filter: decoded from digit 7 of each SKU code (see lib/skuCategory.ts)
+  const counts = categoryCounts(skus.map((k) => k.sku_code));
+  const activeCat = cat === "all" || counts.some((c) => c.group === cat) ? cat : "all"; // a finished category drops out
+  const visible = activeCat === "all" ? skus : skus.filter((k) => categoryOf(k.sku_code).group === activeCat);
+  // "ready" and the bulk actions follow what you can see, so a filter never confirms rows that are hidden
+  const ready = visible.filter((k) => { const r = rows[k.id]; return r && (r.shoot.mood || r.shoot.model) && r.creator_id; });
+
+  function changeCat(group: string) {
+    setCat(group);
+    setPreview(null);
+    // keep only selected rows that are still in view
+    const inView = new Set((group === "all" ? skus : skus.filter((k) => categoryOf(k.sku_code).group === group)).map((k) => k.id));
+    setSel((prev) => new Set([...prev].filter((id) => inView.has(id))));
+  }
 
   function openNew() { setNewName(""); setMoveSelected(true); setDlg("new"); }
   function openRename() { setRenames(Object.fromEntries(batches.map((b) => [b.id, b.name ?? ""]))); setDlg("rename"); }
@@ -107,6 +123,10 @@ export default function TriagePage() {
       </PageHeader>
       <Msg error={msg.error ?? loadError} ok={msg.ok} />
 
+      {skus.length > 0 && (
+        <div className="mb-4"><CategoryChips counts={counts} total={skus.length} value={activeCat} onChange={changeCat} /></div>
+      )}
+
       <Card className="mb-4 flex flex-wrap items-center gap-2 text-sm">
         <span className="font-medium">Bulk ({selected.length} selected):</span>
         <button className={btnGhost} disabled={!selected.length} onClick={() => patch(selected, { shoot: { mood: true, model: false } })}>Mood</button>
@@ -131,19 +151,25 @@ export default function TriagePage() {
           <table className="w-full text-sm">
             <thead className="bg-black/[0.025] text-left text-stone-500">
               <tr>
-                <th className="p-2"><Checkbox checked={sel.size === skus.length} onChange={(e) => setSel(e.target.checked ? new Set(skus.map((k) => k.id)) : new Set())} /></th>
-                <th>SKU</th><th>Preview</th><th>Upload</th><th>Mood</th><th>Model</th><th>Batch</th><th>Creator</th>
+                <th className="p-2"><Checkbox checked={visible.length > 0 && visible.every((k) => sel.has(k.id))} onChange={(e) => setSel((prev) => { const n = new Set(prev); visible.forEach((k) => (e.target.checked ? n.add(k.id) : n.delete(k.id))); return n; })} /></th>
+                <th>SKU</th><th>Category</th><th>Preview</th><th>Upload</th><th>Mood</th><th>Model</th><th>Batch</th><th>Creator</th>
               </tr>
             </thead>
             <tbody>
-              {skus.map((k) => {
+              {visible.map((k) => {
                 const r = rows[k.id]; if (!r) return null;
+                const c = categoryOf(k.sku_code);
+                const detail = c.label && c.label.toLowerCase() !== c.group.toLowerCase().replace(/s$/, "") ? c.label : "";
                 return (
                   <tr key={k.id} className={`border-t border-black/[0.05] transition-colors ${sel.has(k.id) ? "bg-maroon-50/70" : ""}`}>
                     <td className="p-2"><Checkbox checked={sel.has(k.id)} onChange={() => toggle(k.id)} /></td>
                     <td className="font-medium">{k.sku_code}</td>
                     <td className="py-2">
-                      <button type="button" title="Click to enlarge" onClick={() => setPreview(skus.indexOf(k))}>
+                      <span className={c.group === "Unrecognised" ? "text-stone-400" : "text-stone-800"}>{c.group}</span>
+                      {detail && <span className="block max-w-[13rem] truncate text-xs text-stone-500" title={detail}>{detail}</span>}
+                    </td>
+                    <td className="py-2">
+                      <button type="button" title="Click to enlarge" onClick={() => setPreview(visible.indexOf(k))}>
                         <RefImage sku={k.sku_code} className="h-28 w-28 rounded border border-stone-200" />
                       </button>
                     </td>
@@ -200,8 +226,8 @@ export default function TriagePage() {
         </Dialog>
       )}
 
-      {preview !== null && skus[preview] && (() => {
-        const k = skus[preview]; const r = rows[k.id];
+      {preview !== null && visible[preview] && (() => {
+        const k = visible[preview]; const r = rows[k.id];
         return (
           <div className="scrim anim-fade fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setPreview(null)}>
             <div className="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl sheet anim-pop md:flex-row" onClick={(e) => e.stopPropagation()}>
@@ -210,7 +236,7 @@ export default function TriagePage() {
               </div>
               <div className="w-full space-y-4 p-5 text-sm md:w-80">
                 <div className="flex items-start justify-between">
-                  <div><p className="text-base font-semibold">{k.sku_code}</p><p className="text-stone-500">{preview + 1} of {skus.length}</p></div>
+                  <div><p className="text-base font-semibold">{k.sku_code}</p><p className="text-stone-500">{categoryOf(k.sku_code).group} · {preview + 1} of {visible.length}</p></div>
                   <button className={btnGhost} onClick={() => setPreview(null)}><X size={16} /></button>
                 </div>
                 <div className="space-y-2">
@@ -230,7 +256,7 @@ export default function TriagePage() {
                 </label>
                 <div className="flex gap-2">
                   <button className={btnGhost} disabled={preview <= 0} onClick={() => setPreview(preview - 1)}><ChevronLeft size={16} /> Prev</button>
-                  <button className={btn} disabled={preview >= skus.length - 1} onClick={() => setPreview(preview + 1)}>Next <ChevronRight size={16} /></button>
+                  <button className={btn} disabled={preview >= visible.length - 1} onClick={() => setPreview(preview + 1)}>Next <ChevronRight size={16} /></button>
                 </div>
               </div>
             </div>
