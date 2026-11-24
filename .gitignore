@@ -6,3 +6,11 @@ next-env.d.ts
 *.tsbuildinfo
 supabase/.temp
 .DS_Store
+
+# OpenNext
+.open-next
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
