@@ -9,8 +9,10 @@ import { REJECT_REASONS, referenceUrl } from "@/lib/constants";
 import { Select } from "@/components/controls";
 import { TableSkeleton } from "@/components/controls";
 import { Segmented } from "@/components/controls";
-import { ArrowUpRight, Check, ChevronLeft, ChevronRight, Download, X } from "lucide-react";
+import { ArrowUpRight, BarChart3, Check, ChevronLeft, ChevronRight, Download, X } from "lucide-react";
 import { MessageSquare } from "lucide-react";
+import { Dialog } from "@/components/Dialog";
+import { PipelineStatus, type PipelineShot } from "@/components/PipelineStatus";
 
 const reasonLabel = (v: string) => REJECT_REASONS.find((r) => r.value === v)?.label ?? v;
 
@@ -46,6 +48,8 @@ export default function ReviewPage() {
   const [comment, setComment] = useState("");
   const [dest, setDest] = useState<"" | "pdp" | "performance" | "both">("");
   const [campaign, setCampaign] = useState("");
+  const [pipeline, setPipeline] = useState<PipelineShot[]>([]);
+  const [showPipeline, setShowPipeline] = useState(false);
 
   const { loading, error: loadError, reload } = useLiveData(async () => {
     const { data, error } = await supabaseBrowser()
@@ -54,6 +58,16 @@ export default function ReviewPage() {
       .eq("status", "in_review").order("created_at");
     if (error) throw error;
     setShots(data ?? []);
+  }, ["shots", "shot_versions"]);
+
+  // every live shot (any stage), so the reviewer can see what is still with creators, by category
+  useLiveData(async () => {
+    const { data, error } = await supabaseBrowser()
+      .from("shots")
+      .select("status, skus(sku_code), shot_versions(review_status, reject_comment)")
+      .neq("status", "dropped");
+    if (error) throw error;
+    setPipeline((data ?? []) as unknown as PipelineShot[]);
   }, ["shots", "shot_versions"]);
 
   const cur = shots[Math.min(idx, Math.max(0, shots.length - 1))];
@@ -116,6 +130,7 @@ export default function ReviewPage() {
             <span className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-white/80 text-stone-800 shadow-[0_4px_16px_-6px_rgba(0,0,0,0.25)]"><Check size={26} strokeWidth={2.25} /></span>
             <h2 className="text-[1.75rem] font-semibold tracking-[-0.028em]">You&apos;re all caught up</h2>
             <p className="mt-1.5 text-[1.0625rem] text-stone-600">Nothing to review right now.</p>
+            <div className="mt-6 rounded-2xl bg-white/75 p-4 text-left shadow-card"><PipelineStatus shots={pipeline} /></div>
             <Link href="/dashboard" className="mt-7 inline-flex h-11 items-center rounded-full bg-stone-900 px-6 text-[0.9375rem] font-medium text-white transition-[background-color,transform] duration-150 hover:bg-stone-700 active:scale-[0.97]">Back to portal</Link>
           </div>
         )}
@@ -132,11 +147,18 @@ export default function ReviewPage() {
         <span className="rounded-full bg-stone-100 px-2 py-0.5">{cur.shot_type}</span>
         <span className="text-stone-500">{batchLabel(cur.skus.batches)} · by {cur.profiles?.full_name || cur.profiles?.email}</span>
         <div className="ml-auto flex items-center gap-2">
+          <button className={btnGhost} onClick={() => setShowPipeline(true)} title="What is still with creators, by category"><BarChart3 size={15} /> Status</button>
           <button className={btnGhost} disabled={idx <= 0} onClick={() => setIdx(idx - 1)}><ChevronLeft size={16} /></button>
           <span>{Math.min(idx, shots.length - 1) + 1} of {shots.length}</span>
           <button className={btnGhost} disabled={idx >= shots.length - 1} onClick={() => setIdx(idx + 1)}><ChevronRight size={16} /></button>
         </div>
       </header>
+
+      {showPipeline && (
+        <Dialog title="Pipeline status" subtitle="Where every shot is, by category." width="max-w-2xl" onClose={() => setShowPipeline(false)}>
+          <PipelineStatus shots={pipeline} />
+        </Dialog>
+      )}
 
       {/* variation tabs: left image changes, original on the right stays */}
       {multi && (
