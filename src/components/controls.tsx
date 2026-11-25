@@ -14,12 +14,14 @@ type Opt = { value: string; label: ReactNode; text: string; disabled: boolean };
 const textOf = (n: ReactNode): string =>
   typeof n === "string" || typeof n === "number" ? String(n) : Array.isArray(n) ? n.map(textOf).join("") : "";
 
-export function Select({ value, onChange, children, className = "", disabled = false }: {
+export function Select({ value, onChange, children, className = "", disabled = false, display }: {
   value: string;
   onChange: (e: { target: { value: string } }) => void;
   children: ReactNode;
   className?: string;
   disabled?: boolean;
+  /** Replaces the text shown on the button (e.g. "Sort · Price: Low to High"); the menu still lists the options. */
+  display?: ReactNode;
 }) {
   const options: Opt[] = useMemo(
     () =>
@@ -120,7 +122,7 @@ export function Select({ value, onChange, children, className = "", disabled = f
         disabled={disabled} onClick={() => (open ? close(false) : show())} onKeyDown={onKeyDown}
         className={`inline-flex items-center justify-between gap-2 text-left disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
       >
-        <span className={`truncate ${isPlaceholder ? "text-stone-400" : ""}`}>{selected ? selected.label : "Select…"}</span>
+        <span className={`truncate ${isPlaceholder && display === undefined ? "text-stone-400" : ""}`}>{display ?? (selected ? selected.label : "Select…")}</span>
         <ChevronsUpDown size={14} className="shrink-0 text-stone-400" aria-hidden />
       </button>
       {open && typeof document !== "undefined" && createPortal(

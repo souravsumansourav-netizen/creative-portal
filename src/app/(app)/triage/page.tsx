@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { invoke, rpc } from "@/lib/api";
 import { useLiveData } from "@/lib/hooks";
@@ -7,7 +7,7 @@ import { Badge, batchLabel, btn, btnDanger, btnGhost, Card, R2Image, Empty, inpu
 import { RefImage } from "@/components/RefImage";
 import { Select, Checkbox, Segmented } from "@/components/controls";
 import { TableSkeleton } from "@/components/controls";
-import { ChevronLeft, ChevronRight, ExternalLink, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, ExternalLink, Layers, RefreshCw, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { Dialog } from "@/components/Dialog";
 import { CategoryChips } from "@/components/CategoryChips";
 import { categoryCounts, categoryOf } from "@/lib/skuCategory";
@@ -30,6 +30,23 @@ type MarketData = {
   scraped_at: string | null;
 };
 
+type StockF = "all" | "in" | "out";
+type PriceF = "all" | "low" | "high";
+type SortF = "none" | "asc" | "desc";
+const PRICE_CUTOFF = 50_000; // "low" is up to and including this, "high" is above it
+
+/** In stock = only SKUs tagged "In stock". Out of stock = SKUs tagged "Out of stock" or "Store only" (not buyable online).
+ *  Not found / unknown / not fetched yet / fetching / error match neither, so they only show under "Any stock". */
+const stockClass = (m?: MarketData): "in" | "out" | null => {
+  if (!m || m.scrape_status === "queued" || m.scrape_status === "running" || m.scrape_status === "error") return null;
+  switch (m.stock_status) {
+    case "in_stock_online": return "in";
+    case "in_stock_store_only": case "out_of_stock": return "out";
+    default: return null;
+  }
+};
+const priceOf = (m?: MarketData): number | null => (m && m.price != null && Number.isFinite(Number(m.price)) ? Number(m.price) : null);
+
 const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 
 export default function TriagePage() {
@@ -51,6 +68,10 @@ export default function TriagePage() {
   const [delIds, setDelIds] = useState<string[] | null>(null); // SKUs waiting for delete confirmation
   const [preview, setPreview] = useState<number | null>(null); // index into the visible list
   const [cat, setCat] = useState("all"); // category filter ("all" or a group name)
+  const [stock, setStock] = useState<StockF>("all");
+  const [price, setPrice] = useState<PriceF>("all");
+  const [sort, setSort] = useState<SortF>("none");
+  const [showFilters, setShowFilters] = useState(false);
   // batch naming dialogs
   const [dlg, setDlg] = useState<null | "new" | "rename">(null);
   const [newName, setNewName] = useState("");
@@ -96,22 +117,52 @@ export default function TriagePage() {
       return next;
     });
 
-  const selected = [...sel];
-  const toggle = (id: string) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  // category filter: decoded from digit 7 of each SKU code (see lib/skuCategory.ts)
-  const counts = categoryCounts(skus.map((k) => k.sku_code));
-  const activeCat = cat === "all" || counts.some((c) => c.group === cat) ? cat : "all"; // a finished category drops out
-  const visible = activeCat === "all" ? skus : skus.filter((k) => categoryOf(k.sku_code).group === activeCat);
+  const marketFor = (code: string) => marketBySku[String(code ?? "").trim().toUpperCase()];
+  // filters: category (digit 7 of the SKU code), stock and price (from the scraped market data), then an optional price sort
+  type Filters = { cat: string; stock: StockF; price: PriceF };
+  const matches = (k: any, f: Filters) => {
+    if (f.cat !== "all" && categoryOf(k.sku_code).group !== f.cat) return false;
+    const m = marketFor(k.sku_code);
+    if (f.stock !== "all" && stockClass(m) !== f.stock) return false;
+    if (f.price !== "all") {
+      const v = priceOf(m);
+      if (v == null || (f.price === "low" ? v > PRICE_CUTOFF : v <= PRICE_CUTOFF)) return false;
+    }
+    return true;
+  };
+  const allCats = categoryCounts(skus.map((k) => k.sku_code));
+  const activeCat = cat === "all" || allCats.some((c) => c.group === cat) ? cat : "all"; // a finished category drops out
+  const f: Filters = { cat: activeCat, stock, price };
+  const sortedByPrice = (list: any[]) => sort === "none" ? list : [...list].sort((a, b) => {
+    const pa = priceOf(marketFor(a.sku_code)), pb = priceOf(marketFor(b.sku_code));
+    if (pa == null || pb == null) return pa == null && pb == null ? 0 : pa == null ? 1 : -1; // no price always last
+    return sort === "asc" ? pa - pb : pb - pa;
+  });
+  const visible = sortedByPrice(skus.filter((k) => matches(k, f)));
+  // each control's numbers reflect the other two, so a menu item shows what picking it would give. Category chips stay put.
+  const nStock = (v: StockF) => skus.filter((k) => matches(k, { ...f, stock: v })).length;
+  const nPrice = (v: PriceF) => skus.filter((k) => matches(k, { ...f, price: v })).length;
+  const inFilteredCat = skus.filter((k) => matches(k, { ...f, cat: "all" }));
+  const counts = allCats.map((c) => ({ group: c.group, count: inFilteredCat.filter((k) => categoryOf(k.sku_code).group === c.group).length }));
+  const nActive = (stock !== "all" ? 1 : 0) + (price !== "all" ? 1 : 0) + (sort !== "none" ? 1 : 0);
+  const filtersOn = activeCat !== "all" || stock !== "all" || price !== "all" || sort !== "none";
   // "ready" and the bulk actions follow what you can see, so a filter never confirms rows that are hidden
+  const visibleIds = new Set(visible.map((k) => k.id));
+  const selected = [...sel].filter((id) => visibleIds.has(id));
+  const toggle = (id: string) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const ready = visible.filter((k) => { const r = rows[k.id]; return r && (r.shoot.mood || r.shoot.model) && r.creator_id; });
 
-  function changeCat(group: string) {
-    setCat(group);
+  /** Change any filter; rows that drop out of view also drop out of the selection. */
+  function setFilters(next: Partial<Filters>) {
+    const nf = { ...f, ...next };
+    if (next.cat !== undefined) setCat(next.cat);
+    if (next.stock !== undefined) setStock(next.stock);
+    if (next.price !== undefined) setPrice(next.price);
     setPreview(null);
-    // keep only selected rows that are still in view
-    const inView = new Set((group === "all" ? skus : skus.filter((k) => categoryOf(k.sku_code).group === group)).map((k) => k.id));
+    const inView = new Set(skus.filter((k) => matches(k, nf)).map((k) => k.id));
     setSel((prev) => new Set([...prev].filter((id) => inView.has(id))));
   }
+  const resetFilters = () => { setFilters({ cat: "all", stock: "all", price: "all" }); setSort("none"); };
 
   /** Apply whatever the sticky bar has chosen (shot type, batch, creator) to every selected row in one go. */
   function applyBulk() {
@@ -194,8 +245,7 @@ export default function TriagePage() {
   }
 
   const cName = (c: any) => c.full_name || c.email;
-  const selectedCodes = skus.filter((k) => sel.has(k.id)).map((k) => k.sku_code);
-  const marketFor = (code: string) => marketBySku[String(code ?? "").trim().toUpperCase()];
+  const selectedCodes = skus.filter((k) => selected.includes(k.id)).map((k) => k.sku_code);
 
   return (
     <>
@@ -204,8 +254,11 @@ export default function TriagePage() {
           <button className={btnGhost} disabled={fetchingPrice || !visible.length} onClick={() => fetchMarketData(visible.map((k) => k.sku_code))}>
             <RefreshCw size={14} className={fetchingPrice ? "animate-spin" : ""} /> {fetchingPrice ? "Fetching…" : "Fetch price & stock"}
           </button>
-          <button className={btnGhost} onClick={openNew}><Plus size={15} /> New batch</button>
-          <button className={btnGhost} onClick={openRename}><Pencil size={14} /> Rename batches</button>
+          <Select className={btnGhost} value="" display={<><Layers size={14} /> Batches</>}
+            onChange={(e) => (e.target.value === "new" ? openNew() : openRename())}>
+            <option value="new">New batch…</option>
+            <option value="rename">Rename batches…</option>
+          </Select>
           <button className={btn} disabled={busy || !ready.length} onClick={confirm}>Confirm {ready.length} ready</button>
         </>}
       </PageHeader>
@@ -219,17 +272,33 @@ export default function TriagePage() {
       {tab === "assigned" ? (
         loading ? <TableSkeleton /> : <AssignedView shots={assigned} />
       ) : (<>
-      {skus.length > 0 && (
-        <div className="mb-4"><CategoryChips counts={counts} total={skus.length} value={activeCat} onChange={changeCat} /></div>
-      )}
+      {skus.length > 0 && (<>
+        <div className="mb-3"><CategoryChips counts={counts} total={inFilteredCat.length} value={activeCat} onChange={(g) => setFilters({ cat: g })} /></div>
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {/* what is switched on, each removable with one tap */}
+          {stock !== "all" && <ActiveChip label={stock === "in" ? "In stock" : "Out of stock"} onClear={() => setFilters({ stock: "all" })} />}
+          {price !== "all" && <ActiveChip label={price === "low" ? "₹50,000 and below" : "Above ₹50,000"} onClear={() => setFilters({ price: "all" })} />}
+          {sort !== "none" && <ActiveChip label={sort === "asc" ? "Price: Low to High" : "Price: High to Low"} onClear={() => setSort("none")} />}
+          {filtersOn && <button type="button" onClick={resetFilters} className="px-1.5 text-[0.8125rem] font-medium text-maroon-700 hover:underline active:opacity-60">Reset</button>}
+          <span className="ml-auto text-[0.8125rem] tabular-nums text-stone-500" aria-live="polite">
+            {visible.length === skus.length ? `${skus.length} SKUs` : `${visible.length} of ${skus.length} SKUs`}
+          </span>
+          <button type="button" onClick={() => setShowFilters((v) => !v)} aria-expanded={showFilters}
+            className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[0.8125rem] font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.97] motion-reduce:active:scale-100 ${
+              showFilters || nActive ? "bg-stone-900 text-white" : "bg-black/[0.06] text-stone-800 hover:bg-black/[0.10]"}`}>
+            <SlidersHorizontal size={14} /> Filters
+            {nActive > 0 && <span className="rounded-full bg-white/25 px-1.5 text-[0.6875rem] font-semibold tabular-nums">{nActive}</span>}
+          </button>
+        </div>
+      </>)}
 
-      {loading ? <TableSkeleton /> : !skus.length ? <Empty tone="success" hint="New SKUs appear here after an upload or when SKUs are pasted in.">All caught up</Empty> : (
+      {loading ? <TableSkeleton /> : !skus.length ? <Empty tone="success" hint="New SKUs appear here after an upload or when SKUs are pasted in.">All caught up</Empty> : !visible.length ? <Empty hint="Try a different combination, or tap Reset.">No SKUs match these filters</Empty> : (
         <Card className="overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead className="bg-black/[0.025] text-left text-stone-500">
               <tr>
                 <th className="p-2"><Checkbox checked={visible.length > 0 && visible.every((k) => sel.has(k.id))} onChange={(e) => setSel((prev) => { const n = new Set(prev); visible.forEach((k) => (e.target.checked ? n.add(k.id) : n.delete(k.id))); return n; })} /></th>
-                <th>SKU</th><th>Category</th><th>Price</th><th>Stock</th><th>Preview</th><th>Upload</th><th>Mood</th><th>Model</th><th>Batch</th><th>Creator</th><th />
+                <th /><th>Product</th><th>Price &amp; stock</th><th>Shoot</th><th>Batch</th><th>Creator</th><th />
               </tr>
             </thead>
             <tbody>
@@ -241,21 +310,32 @@ export default function TriagePage() {
                 return (
                   <tr key={k.id} className={`border-t border-black/[0.05] transition-colors ${sel.has(k.id) ? "bg-maroon-50/70" : ""}`}>
                     <td className="p-2"><Checkbox checked={sel.has(k.id)} onChange={() => toggle(k.id)} /></td>
-                    <td className="font-medium">{k.sku_code}</td>
-                    <td className="py-2">
-                      <span className={c.group === "Unrecognised" ? "text-stone-400" : "text-stone-800"}>{c.group}</span>
-                      {detail && <span className="block max-w-[13rem] truncate text-xs text-stone-500" title={detail}>{detail}</span>}
-                    </td>
-                    <td className="py-2 tabular-nums"><PriceCell market={market} /></td>
-                    <td className="py-2"><StockBadge market={market} /></td>
                     <td className="py-2">
                       <button type="button" title="Click to enlarge" onClick={() => setPreview(visible.indexOf(k))}>
-                        <RefImage sku={k.sku_code} className="h-28 w-28 rounded border border-stone-200" />
+                        <RefImage sku={k.sku_code} className="h-28 w-28 rounded-xl border border-stone-200" />
                       </button>
                     </td>
-                    <td className="text-stone-500">{k.uploads?.file_name}</td>
-                    <td><Checkbox checked={r.shoot.mood} onChange={(e) => patch([k.id], { shoot: { ...r.shoot, mood: e.target.checked } })} /></td>
-                    <td><Checkbox checked={r.shoot.model} onChange={(e) => patch([k.id], { shoot: { ...r.shoot, model: e.target.checked } })} /></td>
+                    <td className="py-2 pr-3">
+                      <p className="font-semibold">{k.sku_code}</p>
+                      <p className={`text-[0.8125rem] ${c.group === "Unrecognised" ? "text-stone-400" : "text-stone-700"}`}>{c.group}</p>
+                      {detail && <p className="max-w-[13rem] truncate text-xs text-stone-500" title={detail}>{detail}</p>}
+                      {k.uploads?.file_name && <p className="mt-0.5 max-w-[13rem] truncate text-xs text-stone-400" title={k.uploads.file_name}>{k.uploads.file_name}</p>}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <div className="flex flex-col items-start gap-1.5 tabular-nums">
+                        <span className="text-[0.9375rem]"><PriceCell market={market} /></span>
+                        <StockBadge market={market} />
+                      </div>
+                    </td>
+                    <td className="py-2 pr-3">
+                      <div className="flex gap-1.5">
+                        {(["mood", "model"] as const).map((t) => (
+                          <button key={t} type="button" aria-pressed={r.shoot[t]} onClick={() => patch([k.id], { shoot: { ...r.shoot, [t]: !r.shoot[t] } })}
+                            className={`rounded-full px-3 py-1 text-[0.8125rem] font-medium capitalize transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:active:scale-100 ${
+                              r.shoot[t] ? "bg-maroon-700 text-white" : "bg-black/[0.05] text-stone-500 hover:bg-black/[0.09]"}`}>{t}</button>
+                        ))}
+                      </div>
+                    </td>
                     <td>
                       <Select className={input} value={r.batch_id} onChange={(e) => patch([k.id], { batch_id: e.target.value })}>
                         {batches.map((b) => <option key={b.id} value={b.id}>{batchLabel(b)}</option>)}
@@ -279,6 +359,13 @@ export default function TriagePage() {
         </Card>
       )}
       </>)}
+
+      {tab === "triage" && showFilters && (
+        <FilterPanel
+          stock={stock} price={price} sort={sort} nStock={nStock} nPrice={nPrice} shown={visible.length}
+          onStock={(v) => setFilters({ stock: v })} onPrice={(v) => setFilters({ price: v })} onSort={setSort}
+          onReset={resetFilters} canReset={nActive > 0 || activeCat !== "all"} onClose={() => setShowFilters(false)} />
+      )}
 
       {tab === "triage" && selected.length > 0 && (
         <div className="sticky bottom-4 z-30 mt-4">
@@ -556,4 +643,80 @@ function StockBadge({ market }: { market?: MarketData }) {
     default:
       return <span className="text-stone-400">—</span>;
   }
+}
+
+/** A filter that is on, shown as a removable pill. */
+function ActiveChip({ label, onClear }: { label: string; onClear: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-maroon-700/10 py-1 pl-3 pr-1.5 text-[0.8125rem] font-medium text-maroon-800 ring-1 ring-inset ring-maroon-700/15">
+      {label}
+      <button type="button" onClick={onClear} aria-label={`Remove ${label}`} className="rounded-full p-0.5 text-maroon-700/70 transition hover:bg-maroon-700/15 hover:text-maroon-800 active:scale-90"><X size={13} /></button>
+    </span>
+  );
+}
+
+/** Inset list of single-choice rows (like iOS Settings): label, live count, tick on the chosen one. */
+function ChoiceList<T extends string>({ title, value, options, onChange }: {
+  title: string; value: T; onChange: (v: T) => void;
+  options: { value: T; label: string; count?: number }[];
+}) {
+  return (
+    <section>
+      <h3 className="mb-1.5 px-1 !text-[0.75rem] font-medium uppercase tracking-wide !text-stone-500">{title}</h3>
+      <div role="radiogroup" aria-label={title} className="overflow-hidden rounded-2xl bg-white shadow-[0_0_0_0.5px_rgba(0,0,0,0.08)]">
+        {options.map((o, i) => (
+          <button key={o.value} type="button" role="radio" aria-checked={o.value === value} onClick={() => onChange(o.value)}
+            className={`flex w-full items-center gap-3 px-4 py-3 text-left text-[0.9375rem] transition-colors active:bg-black/[0.05] ${i ? "border-t border-black/[0.06]" : ""} ${o.value === value ? "font-medium text-stone-900" : "text-stone-700 hover:bg-black/[0.025]"}`}>
+            <span className="flex-1">{o.label}</span>
+            {o.count !== undefined && <span className="text-[0.8125rem] tabular-nums text-stone-400">{o.count}</span>}
+            <span className="flex w-4 justify-center text-maroon-700">{o.value === value && <Check size={16} strokeWidth={2.5} />}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** Right-hand filter sheet. No scrim, so the list stays visible and updates as you choose. */
+function FilterPanel({ stock, price, sort, nStock, nPrice, shown, onStock, onPrice, onSort, onReset, canReset, onClose }: {
+  stock: StockF; price: PriceF; sort: SortF; nStock: (v: StockF) => number; nPrice: (v: PriceF) => number; shown: number;
+  onStock: (v: StockF) => void; onPrice: (v: PriceF) => void; onSort: (v: SortF) => void;
+  onReset: () => void; canReset: boolean; onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <aside role="complementary" aria-label="Filters" className="sheet anim-slide-in fixed bottom-4 right-4 top-4 z-[60] flex w-[21.5rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-[1.75rem]">
+      <div className="flex items-center justify-between px-5 pb-2 pt-5">
+        <h2 className="!text-[1.375rem]">Filters</h2>
+        <button type="button" onClick={onClose} aria-label="Close filters" className="rounded-full bg-black/[0.06] p-1.5 text-stone-600 transition hover:bg-black/[0.10] active:scale-95"><X size={16} /></button>
+      </div>
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-3">
+        <ChoiceList title="Stock" value={stock} onChange={onStock} options={[
+          { value: "all", label: "Any stock" },
+          { value: "in", label: "In stock", count: nStock("in") },
+          { value: "out", label: "Out of stock", count: nStock("out") },
+        ]} />
+        <p className="-mt-3 px-1 text-xs text-stone-500">Out of stock also includes “Store only” SKUs.</p>
+        <ChoiceList title="Price" value={price} onChange={onPrice} options={[
+          { value: "all", label: "Any price" },
+          { value: "low", label: "₹50,000 and below", count: nPrice("low") },
+          { value: "high", label: "Above ₹50,000", count: nPrice("high") },
+        ]} />
+        <ChoiceList title="Sort by" value={sort} onChange={onSort} options={[
+          { value: "none", label: "Default order" },
+          { value: "asc", label: "Price: Low to High" },
+          { value: "desc", label: "Price: High to Low" },
+        ]} />
+      </div>
+      <div className="flex items-center justify-between gap-3 border-t border-black/[0.06] px-5 py-4">
+        <button type="button" disabled={!canReset} onClick={onReset} className="text-[0.875rem] font-medium text-maroon-700 hover:underline disabled:text-stone-300 disabled:no-underline">Reset</button>
+        <button type="button" className={btn} onClick={onClose}>Show {shown} SKU{shown === 1 ? "" : "s"}</button>
+      </div>
+    </aside>
+  );
 }
