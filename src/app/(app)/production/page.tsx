@@ -7,9 +7,12 @@ import { Badge, batchLabel, btn, Card, Empty, input, Msg, PageHeader, R2Image } 
 import { REJECT_REASONS } from "@/lib/constants";
 import { TableSkeleton } from "@/components/controls";
 import { FilePicker, Segmented } from "@/components/controls";
+import { CategoryChips } from "@/components/CategoryChips";
+import { categoryCounts, categoryOf } from "@/lib/skuCategory";
 
 type ShotType = "mood" | "model";
 type Filter = "todo" | "review" | "done";
+type Kind = "all" | "new" | "redo";
 type FileError = { file: string | null; message: string };
 
 const THEME: Record<ShotType, { label: string; tab: string; box: string; hint: string }> = {
@@ -33,10 +36,16 @@ const FILTERS: { key: Filter; label: string; match: (s: string) => boolean }[] =
   { key: "done", label: "Approved / done", match: (s) => s === "approved" || s === "done" },
 ];
 
+/** A shot the reviewer sent back (a real rejection; "Not selected" variations don't count). */
+const isRedo = (s: any) =>
+  s.shot_versions.some((v: any) => v.review_status === "rejected" && !String(v.reject_comment ?? "").startsWith("Not selected"));
+
 export default function ProductionPage() {
   const [shots, setShots] = useState<any[]>([]);
   const [tab, setTab] = useState<ShotType | "variations">("mood");
   const [filter, setFilter] = useState<Filter>("todo");
+  const [cat, setCat] = useState("all"); // category filter ("all" or a group name)
+  const [kind, setKind] = useState<Kind>("all"); // To do only: new vs sent back for redo
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ error?: string; ok?: string }>({});
   const [errors, setErrors] = useState<FileError[]>([]);
@@ -81,7 +90,18 @@ export default function ProductionPage() {
   const shotTab: ShotType = tab === "variations" ? "mood" : tab;
   const ofType = shots.filter((s) => s.shot_type === shotTab);
   const active = FILTERS.find((f) => f.key === filter)!;
-  const rows = ofType.filter((s) => active.match(s.status));
+  const stageRows = ofType.filter((s) => active.match(s.status));
+  const isTodo = filter === "todo";
+  const inCat = (s: any, g: string) => g === "all" || categoryOf(s.skus.sku_code).group === g;
+  // the two filters narrow each other's counts, so each chip row shows what you would get by clicking it
+  const kindRows = stageRows.filter((s) => !isTodo || kind === "all" || (kind === "redo") === isRedo(s));
+  const catCounts = categoryCounts(kindRows.map((s) => s.skus.sku_code));
+  const activeCat = cat === "all" || catCounts.some((c) => c.group === cat) ? cat : "all"; // an emptied category drops out
+  const redoN = stageRows.filter((s) => inCat(s, activeCat) && isRedo(s)).length;
+  const newN = stageRows.filter((s) => inCat(s, activeCat)).length - redoN;
+  // sent-back shots first so they can't be missed
+  const rows = kindRows.filter((s) => inCat(s, activeCat))
+    .sort((a, b) => (isTodo ? Number(isRedo(b)) - Number(isRedo(a)) : 0));
   const count = (t: ShotType, f: Filter) => shots.filter((s) => s.shot_type === t && FILTERS.find((x) => x.key === f)!.match(s.status)).length;
   const theme = THEME[shotTab];
 
@@ -132,11 +152,31 @@ export default function ProductionPage() {
           options={FILTERS.map((f) => ({ value: f.key, label: f.label, badge: count(shotTab, f.key) }))} />
       </div>
 
+      {isTodo && (
+        <div role="group" aria-label="Filter by new or redo" className="mb-3 flex flex-wrap items-center gap-2">
+          {([["all", "All", newN + redoN], ["new", "New", newN], ["redo", "Redo", redoN]] as [Kind, string, number][]).map(([k, label, n]) => {
+            const on = kind === k;
+            return (
+              <button key={k} type="button" aria-pressed={on} onClick={() => setKind(k)}
+                className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[0.8125rem] font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.97] motion-reduce:active:scale-100 ${
+                  on ? (k === "redo" ? "bg-red-700 text-white" : "bg-stone-900 text-white") : k === "redo" ? "bg-red-50 text-red-800 hover:bg-red-100" : "bg-black/[0.05] text-stone-700 hover:bg-black/[0.08]"
+                }`}>
+                {k === "redo" ? "Redo · sent back" : k === "new" ? "New · not uploaded yet" : label}
+                <span className={`tabular-nums ${on ? "text-white/70" : "text-stone-400"}`}>{n}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {stageRows.length > 0 && (
+        <div className="mb-3"><CategoryChips counts={catCounts} total={kindRows.length} value={activeCat} onChange={setCat} /></div>
+      )}
+
       {loading ? <TableSkeleton /> : !rows.length ? <Empty hint="Try another filter above.">Nothing here</Empty> : (
         <Card className="overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead className="bg-black/[0.025] text-left text-stone-500">
-              <tr><th className="p-2">Batch</th><th>SKU</th><th>Preview</th><th>Status</th><th>Ver.</th><th>Latest feedback</th><th /></tr>
+              <tr><th className="p-2">Batch</th><th>SKU</th><th>Category</th><th>Preview</th><th>Status</th><th>Ver.</th><th>Latest feedback</th><th /></tr>
             </thead>
             <tbody>
               {rows.map((s) => {
@@ -148,10 +188,13 @@ export default function ProductionPage() {
                   .filter((v: any) => v.review_status === "rejected" && !String(v.reject_comment ?? "").startsWith("Not selected"))
                   .sort((a: any, b: any) => b.version_no - a.version_no).slice(0, 4);
                 return (
-                  <tr key={s.id} className="border-t border-black/[0.05]">
+                  <tr key={s.id} className={`border-t border-black/[0.05] ${isTodo && isRedo(s) ? "bg-red-50/50" : ""}`}>
                     <td className="p-2">{batchLabel(s.skus.batches)}</td>
                     <td className="font-medium">
                       <a href={`/shots/${s.id}`} target="_blank" rel="noopener noreferrer" className="hover:text-maroon-700 hover:underline">{s.skus.sku_code}</a>
+                    </td>
+                    <td className="py-2 pr-2">
+                      <span className="text-stone-800">{categoryOf(s.skus.sku_code).group}</span>
                     </td>
                     <td className="py-2">
                       {shown?.assets ? (
@@ -160,7 +203,14 @@ export default function ProductionPage() {
                         </a>
                       ) : <span className="text-stone-400">—</span>}
                     </td>
-                    <td><Badge value={s.status} /></td>
+                    <td>
+                      <Badge value={s.status} />
+                      {s.status === "in_production" && (
+                        <span className={`mt-1 block w-fit rounded-full px-2 py-0.5 text-xs font-semibold ${isRedo(s) ? "bg-red-100 text-red-800" : "bg-stone-100 text-stone-600"}`}>
+                          {isRedo(s) ? "↺ Redo" : "New"}
+                        </span>
+                      )}
+                    </td>
                     <td>{s.current_version || "—"}</td>
                     <td className="py-2">
                       {rejected.length > 0 && (
