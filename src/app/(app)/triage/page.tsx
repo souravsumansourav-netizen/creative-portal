@@ -3,18 +3,26 @@ import { useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { rpc } from "@/lib/api";
 import { useLiveData } from "@/lib/hooks";
-import { batchLabel, btn, btnGhost, Card, Empty, input, Msg, PageHeader } from "@/components/ui";
+import { Badge, batchLabel, btn, btnDanger, btnGhost, Card, R2Image, Empty, input, Msg, PageHeader } from "@/components/ui";
 import { RefImage } from "@/components/RefImage";
-import { Select, Checkbox } from "@/components/controls";
+import { Select, Checkbox, Segmented } from "@/components/controls";
 import { TableSkeleton } from "@/components/controls";
-import { ChevronLeft, ChevronRight, Pencil, Plus, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Dialog } from "@/components/Dialog";
 import { CategoryChips } from "@/components/CategoryChips";
 import { categoryCounts, categoryOf } from "@/lib/skuCategory";
 
+type Tab = "triage" | "assigned";
+
+const DAY = 86_400_000;
+const daysSince = (iso: string) => Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / DAY));
+const dayLabel = (n: number) => (n === 0 ? "Today" : n === 1 ? "1 day" : `${n} days`);
+
 type Row = { shoot: { mood: boolean; model: boolean }; batch_id: string; creator_id: string };
 
 export default function TriagePage() {
+  const [tab, setTab] = useState<Tab>("triage");
+  const [assigned, setAssigned] = useState<any[]>([]);
   const [skus, setSkus] = useState<any[]>([]);
   const [batches, setBatches] = useState<any[]>([]);
   const [creators, setCreators] = useState<any[]>([]);
@@ -25,6 +33,8 @@ export default function TriagePage() {
   // bulk-apply controls
   const [bulkBatch, setBulkBatch] = useState("");
   const [bulkCreator, setBulkCreator] = useState("");
+  const [bulkShoot, setBulkShoot] = useState<"" | "mood" | "model" | "both">("");
+  const [delIds, setDelIds] = useState<string[] | null>(null); // SKUs waiting for delete confirmation
   const [preview, setPreview] = useState<number | null>(null); // index into the visible list
   const [cat, setCat] = useState("all"); // category filter ("all" or a group name)
   // batch naming dialogs
@@ -35,11 +45,15 @@ export default function TriagePage() {
 
   const { loading, error: loadError, reload } = useLiveData(async () => {
     const sb = supabaseBrowser();
-    const [s, b, c] = await Promise.all([
+    const [s, b, c, a] = await Promise.all([
       sb.from("skus").select("id, sku_code, batch_id, created_at, uploads(file_name)").eq("triaged", false).order("created_at", { ascending: false }).order("sku_code"),
       sb.from("batches").select("*").order("batch_no"),
       sb.from("profiles").select("id, full_name, email").eq("role", "creator"),
+      sb.from("shots").select("id, shot_type, status, created_at, creator_id, profiles:creator_id(full_name, email), skus(sku_code, triaged_at, batches(batch_no, name)), shot_versions(version_no, review_status, assets(object_key))")
+        .neq("status", "dropped").order("created_at"),
     ]);
+    if (a.error) throw a.error;
+    setAssigned(a.data ?? []);
     if (s.error) throw s.error;
     setSkus(s.data ?? []); setBatches(b.data ?? []); setCreators(c.data ?? []);
     setRows((prev) => {
@@ -47,7 +61,7 @@ export default function TriagePage() {
       for (const k of s.data ?? []) next[k.id] ??= { shoot: { mood: false, model: false }, batch_id: k.batch_id, creator_id: "" };
       return next;
     });
-  }, ["skus"]);
+  }, ["skus", "shots"]);
 
   const patch = (ids: string[], p: Partial<Row> | ((r: Row) => Partial<Row>)) =>
     setRows((prev) => {
@@ -71,6 +85,33 @@ export default function TriagePage() {
     // keep only selected rows that are still in view
     const inView = new Set((group === "all" ? skus : skus.filter((k) => categoryOf(k.sku_code).group === group)).map((k) => k.id));
     setSel((prev) => new Set([...prev].filter((id) => inView.has(id))));
+  }
+
+  /** Apply whatever the sticky bar has chosen (shot type, batch, creator) to every selected row in one go. */
+  function applyBulk() {
+    const p: Partial<Row> = {};
+    if (bulkShoot) p.shoot = { mood: bulkShoot !== "model", model: bulkShoot !== "mood" };
+    if (bulkBatch) p.batch_id = bulkBatch;
+    if (bulkCreator) p.creator_id = bulkCreator;
+    patch(selected, p);
+    const parts = [bulkShoot && (bulkShoot === "both" ? "Mood + Model" : bulkShoot === "mood" ? "Mood" : "Model"),
+      bulkBatch && batchLabel(batches.find((b) => b.id === bulkBatch)),
+      bulkCreator && cName(creators.find((c) => c.id === bulkCreator))].filter(Boolean);
+    setMsg({ ok: `Set ${parts.join(" · ")} on ${selected.length} SKU${selected.length === 1 ? "" : "s"}.` });
+    setSel(new Set());
+  }
+
+  async function deleteSkus() {
+    if (!delIds) return;
+    setBusy(true); setMsg({});
+    try {
+      const n = await rpc<number>("delete_skus", { p_ids: delIds });
+      setMsg({ ok: `Deleted ${n} SKU${n === 1 ? "" : "s"} from Triage.` });
+      setSel((prev) => new Set([...prev].filter((id) => !delIds.includes(id))));
+      setDelIds(null);
+      await reload();
+    } catch (e) { setMsg({ error: (e as Error).message }); setDelIds(null); }
+    setBusy(false);
   }
 
   function openNew() { setNewName(""); setMoveSelected(true); setDlg("new"); }
@@ -119,32 +160,25 @@ export default function TriagePage() {
   return (
     <>
       <PageHeader title="Triage" sub="Choose shot types, a creator and a batch. Confirming locks the batch.">
-        <button className={btn} disabled={busy || !ready.length} onClick={confirm}>Confirm {ready.length} ready</button>
+        {tab === "triage" && <>
+          <button className={btnGhost} onClick={openNew}><Plus size={15} /> New batch</button>
+          <button className={btnGhost} onClick={openRename}><Pencil size={14} /> Rename batches</button>
+          <button className={btn} disabled={busy || !ready.length} onClick={confirm}>Confirm {ready.length} ready</button>
+        </>}
       </PageHeader>
       <Msg error={msg.error ?? loadError} ok={msg.ok} />
 
+      <div className="mb-4">
+        <Segmented value={tab} onChange={setTab}
+          options={[{ value: "triage" as const, label: "To triage", badge: skus.length }, { value: "assigned" as const, label: "Assigned", badge: assigned.length }]} />
+      </div>
+
+      {tab === "assigned" ? (
+        loading ? <TableSkeleton /> : <AssignedView shots={assigned} />
+      ) : (<>
       {skus.length > 0 && (
         <div className="mb-4"><CategoryChips counts={counts} total={skus.length} value={activeCat} onChange={changeCat} /></div>
       )}
-
-      <Card className="mb-4 flex flex-wrap items-center gap-2 text-sm">
-        <span className="font-medium">Bulk ({selected.length} selected):</span>
-        <button className={btnGhost} disabled={!selected.length} onClick={() => patch(selected, { shoot: { mood: true, model: false } })}>Mood</button>
-        <button className={btnGhost} disabled={!selected.length} onClick={() => patch(selected, { shoot: { mood: false, model: true } })}>Model</button>
-        <button className={btnGhost} disabled={!selected.length} onClick={() => patch(selected, { shoot: { mood: true, model: true } })}>Both</button>
-        <Select className={input} value={bulkBatch} onChange={(e) => setBulkBatch(e.target.value)}>
-          <option value="">Batch…</option>
-          {batches.map((b) => <option key={b.id} value={b.id}>{batchLabel(b)}</option>)}
-        </Select>
-        <button className={btnGhost} disabled={!selected.length || !bulkBatch} onClick={() => patch(selected, { batch_id: bulkBatch })}>Set batch</button>
-        <button className={btnGhost} onClick={openNew}><Plus size={15} /> New batch</button>
-        <button className={btnGhost} onClick={openRename}><Pencil size={14} /> Rename batches</button>
-        <Select className={input} value={bulkCreator} onChange={(e) => setBulkCreator(e.target.value)}>
-          <option value="">Creator…</option>
-          {creators.map((c) => <option key={c.id} value={c.id}>{cName(c)}</option>)}
-        </Select>
-        <button className={btnGhost} disabled={!selected.length || !bulkCreator} onClick={() => patch(selected, { creator_id: bulkCreator })}>Set creator</button>
-      </Card>
 
       {loading ? <TableSkeleton /> : !skus.length ? <Empty tone="success" hint="New SKUs appear here after an upload or when SKUs are pasted in.">All caught up</Empty> : (
         <Card className="overflow-x-auto p-0">
@@ -152,7 +186,7 @@ export default function TriagePage() {
             <thead className="bg-black/[0.025] text-left text-stone-500">
               <tr>
                 <th className="p-2"><Checkbox checked={visible.length > 0 && visible.every((k) => sel.has(k.id))} onChange={(e) => setSel((prev) => { const n = new Set(prev); visible.forEach((k) => (e.target.checked ? n.add(k.id) : n.delete(k.id))); return n; })} /></th>
-                <th>SKU</th><th>Category</th><th>Preview</th><th>Upload</th><th>Mood</th><th>Model</th><th>Batch</th><th>Creator</th>
+                <th>SKU</th><th>Category</th><th>Preview</th><th>Upload</th><th>Mood</th><th>Model</th><th>Batch</th><th>Creator</th><th />
               </tr>
             </thead>
             <tbody>
@@ -187,12 +221,59 @@ export default function TriagePage() {
                         {creators.map((c) => <option key={c.id} value={c.id}>{cName(c)}</option>)}
                       </Select>
                     </td>
+                    <td className="pr-2 text-right">
+                      <button type="button" title="Delete this SKU" aria-label={`Delete ${k.sku_code}`} onClick={() => setDelIds([k.id])}
+                        className="rounded-full p-2 text-stone-400 transition hover:bg-red-50 hover:text-red-700 active:scale-95"><Trash2 size={16} /></button>
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </Card>
+      )}
+      </>)}
+
+      {tab === "triage" && selected.length > 0 && (
+        <div className="sticky bottom-4 z-30 mt-4">
+          <div className="anim-pop mx-auto flex max-w-full flex-wrap items-center gap-x-4 gap-y-3 rounded-[1.5rem] border border-black/[0.08] bg-white/90 px-5 py-3.5 text-sm shadow-[0_12px_40px_-8px_rgba(0,0,0,0.3)] backdrop-blur-xl">
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-stone-900 px-3 py-1 text-[0.8125rem] font-semibold tabular-nums text-white">{selected.length} selected</span>
+              <button type="button" className="text-stone-500 underline-offset-2 hover:underline" onClick={() => setSel(new Set())}>Clear</button>
+            </div>
+            <label className="flex items-center gap-2"><span className="text-xs font-semibold uppercase tracking-wide text-stone-400">1 Shoot</span>
+              <Segmented value={bulkShoot} onChange={setBulkShoot}
+                options={[{ value: "mood" as const, label: "Mood" }, { value: "model" as const, label: "Model" }, { value: "both" as const, label: "Both" }]} />
+            </label>
+            <label className="flex items-center gap-2"><span className="text-xs font-semibold uppercase tracking-wide text-stone-400">2 Batch</span>
+              <Select className={input} value={bulkBatch} onChange={(e) => setBulkBatch(e.target.value)}>
+                <option value="">Keep as is</option>
+                {batches.map((b) => <option key={b.id} value={b.id}>{batchLabel(b)}</option>)}
+              </Select>
+            </label>
+            <label className="flex items-center gap-2"><span className="text-xs font-semibold uppercase tracking-wide text-stone-400">3 Creator</span>
+              <Select className={input} value={bulkCreator} onChange={(e) => setBulkCreator(e.target.value)}>
+                <option value="">Keep as is</option>
+                {creators.map((c) => <option key={c.id} value={c.id}>{cName(c)}</option>)}
+              </Select>
+            </label>
+            <button className={btn} disabled={!bulkShoot && !bulkBatch && !bulkCreator} onClick={applyBulk}>Apply to {selected.length}</button>
+            <span className="mx-1 hidden h-6 w-px bg-black/[0.08] sm:block" />
+            <button className={btnGhost} disabled={busy || !ready.length} onClick={confirm}>Confirm {ready.length} ready</button>
+            <button className={`${btnDanger} ml-auto`} disabled={busy} onClick={() => setDelIds(selected)}><Trash2 size={14} /> Delete</button>
+          </div>
+        </div>
+      )}
+      {delIds && (
+        <Dialog title={`Delete ${delIds.length} SKU${delIds.length === 1 ? "" : "s"}?`}
+          subtitle="They are removed from Triage permanently and cannot be recovered. Re-upload the SKU if you need it back."
+          onClose={() => setDelIds(null)}
+          footer={<><button className={btnGhost} onClick={() => setDelIds(null)}>Cancel</button>
+            <button className={btnDanger} disabled={busy} onClick={deleteSkus}>{busy ? "Deleting…" : "Delete permanently"}</button></>}>
+          <p className="text-sm text-stone-600">{delIds.length <= 5
+            ? skus.filter((k) => delIds.includes(k.id)).map((k) => k.sku_code).join(", ")
+            : `${delIds.length} selected SKUs`}</p>
+        </Dialog>
       )}
       {dlg === "new" && (
         <Dialog title="New batch" subtitle="Give it a name your team will recognise." onClose={() => setDlg(null)}
@@ -263,6 +344,116 @@ export default function TriagePage() {
           </div>
         );
       })()}
+    </>
+  );
+}
+
+type Stage = "all" | "prod" | "review" | "done";
+const STAGES: { key: Stage; label: string; match: (st: string) => boolean }[] = [
+  { key: "all", label: "All", match: () => true },
+  { key: "prod", label: "In production", match: (st) => st === "in_production" },
+  { key: "review", label: "In review", match: (st) => st === "submitted" || st === "in_review" },
+  { key: "done", label: "Approved", match: (st) => st === "approved" || st === "done" },
+];
+const stageRank = (st: string) => STAGES.findIndex((x) => x.key !== "all" && x.match(st)); // production, review, approved
+
+/** What has been handed out: grouped by creator, with how many days each shot has been with them. */
+function AssignedView({ shots }: { shots: any[] }) {
+  const [cat, setCat] = useState("all");
+  const [stage, setStage] = useState<Stage>("all");
+  const [creator, setCreator] = useState("all");
+  const when = (s: any) => s.skus?.triaged_at ?? s.created_at;
+  const cid = (s: any) => s.creator_id ?? "none";
+  const cname = (s: any) => s.profiles?.full_name || s.profiles?.email || "No creator";
+  const inStage = (s: any, k: Stage) => STAGES.find((x) => x.key === k)!.match(s.status);
+
+  // each filter's counts reflect the other two, so a chip shows what clicking it would give
+  const creators = [...new Map(shots.map((s) => [cid(s), cname(s)])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const activeCreator = creator === "all" || creators.some(([id]) => id === creator) ? creator : "all";
+  const byCreatorSel = shots.filter((s) => activeCreator === "all" || cid(s) === activeCreator);
+  const byStage = byCreatorSel.filter((s) => inStage(s, stage));
+  const counts = categoryCounts(byStage.map((s) => s.skus?.sku_code));
+  const activeCat = cat === "all" || counts.some((c) => c.group === cat) ? cat : "all";
+  const inCat = (s: any) => activeCat === "all" || categoryOf(s.skus?.sku_code).group === activeCat;
+  const shown = byStage.filter(inCat);
+
+  if (!shots.length) return <Empty hint="Shots appear here once you confirm them in the To triage tab.">Nothing assigned yet</Empty>;
+
+  const byCreator = new Map<string, { name: string; items: any[] }>();
+  for (const s of shown) {
+    const g: { name: string; items: any[] } = byCreator.get(cid(s)) ?? { name: cname(s), items: [] as any[] };
+    byCreator.set(cid(s), g);
+    g.items.push(s);
+  }
+  const isOpen = (s: any) => s.status === "in_production";
+  const groups = [...byCreator.values()].map((g) => ({
+    ...g,
+    // in production first, then in review, approved last; longest-waiting first within each
+    items: g.items.sort((a, b) => stageRank(a.status) - stageRank(b.status) || +new Date(when(a)) - +new Date(when(b))),
+    open: g.items.filter(isOpen).length,
+  })).sort((a, b) => b.open - a.open || a.name.localeCompare(b.name));
+
+  return (
+    <>
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <Segmented value={stage} onChange={setStage}
+          options={STAGES.map((x) => ({ value: x.key, label: x.label, badge: byCreatorSel.filter((s) => x.match(s.status) && inCat(s)).length }))} />
+        <Select className={input} value={activeCreator} onChange={(e) => setCreator(e.target.value)} aria-label="Filter by creator">
+          <option value="all">All creators</option>
+          {creators.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </Select>
+      </div>
+      <div className="mb-4"><CategoryChips counts={counts} total={byStage.length} value={activeCat} onChange={setCat} /></div>
+      {!groups.length && <Empty hint="Try another filter above.">Nothing here</Empty>}
+      <div className="space-y-4">
+        {groups.map((g) => {
+          const oldest = Math.max(0, ...g.items.filter(isOpen).map((s) => daysSince(when(s))));
+          return (
+            <Card key={g.name} className="overflow-x-auto p-0">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-black/[0.05] bg-black/[0.025] px-4 py-3">
+                <p className="text-[1rem] font-semibold">{g.name}</p>
+                <p className="text-xs text-stone-500 tabular-nums">
+                  {g.items.length} shown · <b className="text-stone-900">{g.open}</b> in production
+                  {g.open > 0 && <> · oldest waiting <b className={oldest >= 14 ? "text-red-700" : oldest >= 7 ? "text-apple-orange" : "text-stone-900"}>{dayLabel(oldest)}</b></>}
+                </p>
+              </div>
+              <table className="w-full text-sm">
+                <thead className="text-left text-xs text-stone-500">
+                  <tr><th className="px-4 py-2 font-medium">SKU</th><th className="font-medium">Preview</th><th className="font-medium">Category</th><th className="font-medium">Shot</th><th className="font-medium">Batch</th><th className="font-medium">Status</th><th className="font-medium">Assigned</th><th className="px-4 text-right font-medium">Time since</th></tr>
+                </thead>
+                <tbody>
+                  {g.items.map((s: any) => {
+                    const d = daysSince(when(s));
+                    const tone = !isOpen(s) ? "text-stone-400" : d >= 14 ? "font-semibold text-red-700" : d >= 7 ? "font-semibold text-apple-orange" : "text-stone-900";
+                    const vs = [...(s.shot_versions ?? [])].sort((a: any, b: any) => b.version_no - a.version_no);
+                    const shownV = vs.find((v: any) => v.review_status === "approved") ?? vs[0]; // approved image, else the latest upload
+                    return (
+                      <tr key={s.id} className="border-t border-black/[0.05]">
+                        <td className="px-4 py-2 font-medium">
+                          <a href={`/shots/${s.id}`} target="_blank" rel="noopener noreferrer" className="hover:text-maroon-700 hover:underline">{s.skus?.sku_code}</a>
+                        </td>
+                        <td className="py-2">
+                          {shownV?.assets ? (
+                            <a href={`/shots/${s.id}`} target="_blank" rel="noopener noreferrer" title="Open the shot" className="block w-fit overflow-hidden rounded border border-stone-200">
+                              <R2Image objectKey={shownV.assets.object_key} className="h-14 w-14 bg-stone-100" />
+                            </a>
+                          ) : <span className="text-stone-400" title="Nothing uploaded yet">—</span>}
+                        </td>
+                        <td className="text-stone-700">{categoryOf(s.skus?.sku_code).group}</td>
+                        <td className="capitalize text-stone-700">{s.shot_type}</td>
+                        <td className="text-stone-700">{s.skus?.batches ? batchLabel(s.skus.batches) : "—"}</td>
+                        <td><Badge value={s.status} /></td>
+                        <td className="text-stone-500">{new Date(when(s)).toLocaleDateString(undefined, { day: "numeric", month: "short" })}</td>
+                        <td className={`px-4 text-right tabular-nums ${tone}`}>{dayLabel(d)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </Card>
+          );
+        })}
+      </div>
     </>
   );
 }
