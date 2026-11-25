@@ -1,13 +1,13 @@
 "use client";
 import { useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { rpc } from "@/lib/api";
+import { invoke, rpc } from "@/lib/api";
 import { useLiveData } from "@/lib/hooks";
 import { Badge, batchLabel, btn, btnDanger, btnGhost, Card, R2Image, Empty, input, Msg, PageHeader } from "@/components/ui";
 import { RefImage } from "@/components/RefImage";
 import { Select, Checkbox, Segmented } from "@/components/controls";
 import { TableSkeleton } from "@/components/controls";
-import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ExternalLink, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { Dialog } from "@/components/Dialog";
 import { CategoryChips } from "@/components/CategoryChips";
 import { categoryCounts, categoryOf } from "@/lib/skuCategory";
@@ -19,17 +19,31 @@ const daysSince = (iso: string) => Math.max(0, Math.floor((Date.now() - new Date
 const dayLabel = (n: number) => (n === 0 ? "Today" : n === 1 ? "1 day" : `${n} days`);
 
 type Row = { shoot: { mood: boolean; model: boolean }; batch_id: string; creator_id: string };
+type MarketData = {
+  sku_code: string;
+  product_url: string | null;
+  price: number | null;
+  currency: string | null;
+  stock_status: "in_stock_online" | "in_stock_store_only" | "out_of_stock" | "not_found" | "unknown" | null;
+  scrape_status: "queued" | "running" | "done" | "error";
+  scrape_error: string | null;
+  scraped_at: string | null;
+};
+
+const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 
 export default function TriagePage() {
   const [tab, setTab] = useState<Tab>("triage");
   const [assigned, setAssigned] = useState<any[]>([]);
   const [skus, setSkus] = useState<any[]>([]);
+  const [marketBySku, setMarketBySku] = useState<Record<string, MarketData>>({});
   const [batches, setBatches] = useState<any[]>([]);
   const [creators, setCreators] = useState<any[]>([]);
   const [rows, setRows] = useState<Record<string, Row>>({});
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [msg, setMsg] = useState<{ error?: string; ok?: string }>({});
   const [busy, setBusy] = useState(false);
+  const [fetchingPrice, setFetchingPrice] = useState(false);
   // bulk-apply controls
   const [bulkBatch, setBulkBatch] = useState("");
   const [bulkCreator, setBulkCreator] = useState("");
@@ -55,13 +69,25 @@ export default function TriagePage() {
     if (a.error) throw a.error;
     setAssigned(a.data ?? []);
     if (s.error) throw s.error;
-    setSkus(s.data ?? []); setBatches(b.data ?? []); setCreators(c.data ?? []);
+    const skuList = s.data ?? [];
+    setSkus(skuList); setBatches(b.data ?? []); setCreators(c.data ?? []);
+    const codes = [...new Set(skuList.map((k: any) => String(k.sku_code ?? "").trim().toUpperCase()).filter(Boolean))];
+    const nextMarket: Record<string, MarketData> = {};
+    if (codes.length) {
+      const { data: mRows, error: mErr } = await sb
+        .from("sku_market_data")
+        .select("sku_code, product_url, price, currency, stock_status, scrape_status, scrape_error, scraped_at")
+        .in("sku_code", codes);
+      if (mErr) throw mErr;
+      for (const m of mRows ?? []) nextMarket[String(m.sku_code).toUpperCase()] = m as MarketData;
+    }
+    setMarketBySku(nextMarket);
     setRows((prev) => {
       const next = { ...prev };
-      for (const k of s.data ?? []) next[k.id] ??= { shoot: { mood: false, model: false }, batch_id: k.batch_id, creator_id: "" };
+      for (const k of skuList) next[k.id] ??= { shoot: { mood: false, model: false }, batch_id: k.batch_id, creator_id: "" };
       return next;
     });
-  }, ["skus", "shots"]);
+  }, ["skus", "shots", "sku_market_data"]);
 
   const patch = (ids: string[], p: Partial<Row> | ((r: Row) => Partial<Row>)) =>
     setRows((prev) => {
@@ -155,12 +181,29 @@ export default function TriagePage() {
     setBusy(false);
   }
 
+  async function fetchMarketData(skuCodes: string[]) {
+    const codes = [...new Set(skuCodes.map((c) => String(c ?? "").trim().toUpperCase()).filter(Boolean))];
+    if (!codes.length) return;
+    setFetchingPrice(true); setMsg({});
+    try {
+      const r = await invoke<{ queued: number }>("trigger-scrape", { sku_codes: codes, mode: "queued" });
+      setMsg({ ok: `Queued price & stock fetch for ${r.queued ?? codes.length} SKU${codes.length === 1 ? "" : "s"}.` });
+      await reload();
+    } catch (e) { setMsg({ error: (e as Error).message }); }
+    setFetchingPrice(false);
+  }
+
   const cName = (c: any) => c.full_name || c.email;
+  const selectedCodes = skus.filter((k) => sel.has(k.id)).map((k) => k.sku_code);
+  const marketFor = (code: string) => marketBySku[String(code ?? "").trim().toUpperCase()];
 
   return (
     <>
       <PageHeader title="Triage" sub="Choose shot types, a creator and a batch. Confirming locks the batch.">
         {tab === "triage" && <>
+          <button className={btnGhost} disabled={fetchingPrice || !visible.length} onClick={() => fetchMarketData(visible.map((k) => k.sku_code))}>
+            <RefreshCw size={14} className={fetchingPrice ? "animate-spin" : ""} /> {fetchingPrice ? "Fetching…" : "Fetch price & stock"}
+          </button>
           <button className={btnGhost} onClick={openNew}><Plus size={15} /> New batch</button>
           <button className={btnGhost} onClick={openRename}><Pencil size={14} /> Rename batches</button>
           <button className={btn} disabled={busy || !ready.length} onClick={confirm}>Confirm {ready.length} ready</button>
@@ -186,7 +229,7 @@ export default function TriagePage() {
             <thead className="bg-black/[0.025] text-left text-stone-500">
               <tr>
                 <th className="p-2"><Checkbox checked={visible.length > 0 && visible.every((k) => sel.has(k.id))} onChange={(e) => setSel((prev) => { const n = new Set(prev); visible.forEach((k) => (e.target.checked ? n.add(k.id) : n.delete(k.id))); return n; })} /></th>
-                <th>SKU</th><th>Category</th><th>Preview</th><th>Upload</th><th>Mood</th><th>Model</th><th>Batch</th><th>Creator</th><th />
+                <th>SKU</th><th>Category</th><th>Price</th><th>Stock</th><th>Preview</th><th>Upload</th><th>Mood</th><th>Model</th><th>Batch</th><th>Creator</th><th />
               </tr>
             </thead>
             <tbody>
@@ -194,6 +237,7 @@ export default function TriagePage() {
                 const r = rows[k.id]; if (!r) return null;
                 const c = categoryOf(k.sku_code);
                 const detail = c.label && c.label.toLowerCase() !== c.group.toLowerCase().replace(/s$/, "") ? c.label : "";
+                const market = marketFor(k.sku_code);
                 return (
                   <tr key={k.id} className={`border-t border-black/[0.05] transition-colors ${sel.has(k.id) ? "bg-maroon-50/70" : ""}`}>
                     <td className="p-2"><Checkbox checked={sel.has(k.id)} onChange={() => toggle(k.id)} /></td>
@@ -202,6 +246,8 @@ export default function TriagePage() {
                       <span className={c.group === "Unrecognised" ? "text-stone-400" : "text-stone-800"}>{c.group}</span>
                       {detail && <span className="block max-w-[13rem] truncate text-xs text-stone-500" title={detail}>{detail}</span>}
                     </td>
+                    <td className="py-2 tabular-nums"><PriceCell market={market} /></td>
+                    <td className="py-2"><StockBadge market={market} /></td>
                     <td className="py-2">
                       <button type="button" title="Click to enlarge" onClick={() => setPreview(visible.indexOf(k))}>
                         <RefImage sku={k.sku_code} className="h-28 w-28 rounded border border-stone-200" />
@@ -259,6 +305,9 @@ export default function TriagePage() {
             </label>
             <button className={btn} disabled={!bulkShoot && !bulkBatch && !bulkCreator} onClick={applyBulk}>Apply to {selected.length}</button>
             <span className="mx-1 hidden h-6 w-px bg-black/[0.08] sm:block" />
+            <button className={btnGhost} disabled={fetchingPrice} onClick={() => fetchMarketData(selectedCodes)}>
+              <RefreshCw size={14} className={fetchingPrice ? "animate-spin" : ""} /> Fetch price
+            </button>
             <button className={btnGhost} disabled={busy || !ready.length} onClick={confirm}>Confirm {ready.length} ready</button>
             <button className={`${btnDanger} ml-auto`} disabled={busy} onClick={() => setDelIds(selected)}><Trash2 size={14} /> Delete</button>
           </div>
@@ -308,7 +357,7 @@ export default function TriagePage() {
       )}
 
       {preview !== null && visible[preview] && (() => {
-        const k = visible[preview]; const r = rows[k.id];
+        const k = visible[preview]; const r = rows[k.id]; const market = marketFor(k.sku_code);
         return (
           <div className="scrim anim-fade fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setPreview(null)}>
             <div className="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl sheet anim-pop md:flex-row" onClick={(e) => e.stopPropagation()}>
@@ -319,6 +368,10 @@ export default function TriagePage() {
                 <div className="flex items-start justify-between">
                   <div><p className="text-base font-semibold">{k.sku_code}</p><p className="text-stone-500">{categoryOf(k.sku_code).group} · {preview + 1} of {visible.length}</p></div>
                   <button className={btnGhost} onClick={() => setPreview(null)}><X size={16} /></button>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-black/[0.06] bg-stone-50 px-3 py-2.5">
+                  <div className="tabular-nums"><PriceCell market={market} /></div>
+                  <StockBadge market={market} />
                 </div>
                 <div className="space-y-2">
                   <label className="flex items-center gap-2"><Checkbox checked={r.shoot.mood} onChange={(e) => patch([k.id], { shoot: { ...r.shoot, mood: e.target.checked } })} /> Mood shot</label>
@@ -456,4 +509,51 @@ function AssignedView({ shots }: { shots: any[] }) {
       </div>
     </>
   );
+}
+
+function PriceCell({ market }: { market?: MarketData }) {
+  if (!market || market.price == null) {
+    return market?.product_url ? (
+      <a href={market.product_url} target="_blank" rel="noopener noreferrer" title="Open PDP"
+        className="inline-flex items-center gap-1 text-stone-500 hover:text-maroon-700">
+        — <ExternalLink size={12} />
+      </a>
+    ) : <span className="text-stone-400">—</span>;
+  }
+  const formatted = market.currency && market.currency !== "INR"
+    ? `${market.currency} ${Number(market.price).toLocaleString("en-IN")}`
+    : inr.format(Number(market.price));
+  const tip = market.scraped_at ? `Scraped ${new Date(market.scraped_at).toLocaleString()}` : undefined;
+  if (market.product_url) {
+    return (
+      <a href={market.product_url} target="_blank" rel="noopener noreferrer" title={tip ? `${tip} · Open PDP` : "Open PDP"}
+        className="inline-flex items-center gap-1 font-medium text-stone-900 hover:text-maroon-700 hover:underline">
+        {formatted} <ExternalLink size={12} className="text-stone-400" />
+      </a>
+    );
+  }
+  return <span className="font-medium text-stone-900" title={tip}>{formatted}</span>;
+}
+
+function StockBadge({ market }: { market?: MarketData }) {
+  if (!market) return <span className="text-stone-400">—</span>;
+  const pill = "inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium";
+  if (market.scrape_status === "queued" || market.scrape_status === "running") {
+    return <span className={`${pill} animate-pulse bg-black/[0.06] text-stone-600`}>Fetching…</span>;
+  }
+  if (market.scrape_status === "error") {
+    return <span className={`${pill} bg-apple-red/15 text-ink-red`} title={market.scrape_error ?? "Scrape failed"}>Error</span>;
+  }
+  switch (market.stock_status) {
+    case "in_stock_online":
+      return <span className={`${pill} bg-apple-green/15 text-ink-green`}>In stock</span>;
+    case "in_stock_store_only":
+      return <span className={`${pill} bg-apple-orange/15 text-ink-orange`}>Store only</span>;
+    case "out_of_stock":
+      return <span className={`${pill} bg-apple-red/15 text-ink-red`}>Out of stock</span>;
+    case "not_found":
+      return <span className={`${pill} bg-black/[0.06] text-stone-500`}>Not found</span>;
+    default:
+      return <span className="text-stone-400">—</span>;
+  }
 }

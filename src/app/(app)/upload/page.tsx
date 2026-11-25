@@ -43,6 +43,7 @@ export default function UploadPage() {
       setMsg({ ok: `Ingested ${r.sku_count} SKUs into Batch 1${r.duplicates_skipped ? ` (${r.duplicates_skipped} duplicates skipped)` : ""}.` });
       setFile(null);
       reload();
+      try { void invoke("trigger-scrape", { mode: "queued" }).catch(() => {}); } catch { /* non-blocking */ }
     } catch (e) {
       setMsg({ error: (e as Error).message });
     }
@@ -57,6 +58,7 @@ export default function UploadPage() {
       setMsg({ ok: `Added ${r.sku_count} SKU${r.sku_count === 1 ? "" : "s"} to Batch 1${r.already_in_portal ? ` (${r.already_in_portal} already existed in the portal)` : ""}. They're waiting in Triage.` });
       setPasted(""); setLabel("");
       reload();
+      try { void invoke("trigger-scrape", { mode: "queued" }).catch(() => {}); } catch { /* non-blocking */ }
     } catch (e) {
       setMsg({ error: (e as Error).message });
     }
