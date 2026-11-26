@@ -27,4 +27,4 @@ export function useViewMode(): ViewMode | null {
 }
 
 /** Screens a reviewer may open (everything an approver can see, plus the shot detail page). */
-export const REVIEWER_PATHS = ["/triage", "/review", "/rework", "/library", "/routing", "/dashboard", "/shots"];
+export const REVIEWER_PATHS = ["/triage", "/intelligence", "/review", "/rework", "/library", "/routing", "/dashboard", "/shots"];

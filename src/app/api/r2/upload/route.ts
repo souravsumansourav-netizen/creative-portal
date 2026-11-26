@@ -13,8 +13,9 @@ export async function POST(req: Request) {
   if (!auth) return NextResponse.json({ error: "not signed in" }, { status: 401 });
 
   const key = new URL(req.url).searchParams.get("key") ?? "";
-  if (!key.startsWith(`staging/${auth.user.id}/`) || key.includes("..")) {
-    return NextResponse.json({ error: "uploads must go under your staging prefix" }, { status: 403 });
+  const allowed = key.startsWith(`staging/${auth.user.id}/`) || key.startsWith("intelligence/");
+  if (!allowed || key.includes("..")) {
+    return NextResponse.json({ error: "uploads must go under your staging or intelligence prefix" }, { status: 403 });
   }
   const contentType = req.headers.get("content-type") || "image/jpeg";
   const body = Buffer.from(await req.arrayBuffer());

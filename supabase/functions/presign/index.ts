@@ -4,12 +4,15 @@
 import { authenticate, HttpError, json, presignGet, presignPut, serve } from "../_shared/common.ts";
 
 serve(async (req) => {
-  const { user, client } = await authenticate(req, ["uploader", "approver", "creator", "pdp_uploader", "performance"]);
+  const { user, role, client } = await authenticate(req, ["uploader", "approver", "creator", "pdp_uploader", "performance"]);
   const { action, key, contentType, download_name } = await req.json();
   if (typeof key !== "string" || !key || key.includes("..")) throw new HttpError(400, "invalid key");
 
   if (action === "put") {
-    if (!key.startsWith(`staging/${user.id}/`)) throw new HttpError(403, "uploads must go under your staging prefix");
+    const allowedIntel = key.startsWith("intelligence/") && (role === "admin" || role === "approver" || role === "uploader");
+    if (!key.startsWith(`staging/${user.id}/`) && !allowedIntel) {
+      throw new HttpError(403, "uploads must go under your staging prefix");
+    }
     return json({ ok: true, url: await presignPut(key, contentType || "image/jpeg") });
   }
 
