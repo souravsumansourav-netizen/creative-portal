@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { ExternalLink, X } from "lucide-react";
 import { btnGhost } from "@/components/ui";
 import { RefImage } from "@/components/RefImage";
-import { DESIGN_AXES, driverLabel, formatPct, inr, type IntelItem } from "./types";
+import { DESIGN_AXES, driverLabel, formatPct, inr, TIER_HELP, type IntelItem, type TierName } from "./types";
 
 export function IntelThumb({ sku, imageUrl, className = "h-12 w-12" }: { sku: string; imageUrl?: string | null; className?: string }) {
   const [failed, setFailed] = useState(false);
@@ -49,10 +49,16 @@ export function ProbPill({ value }: { value: number | null | undefined }) {
 export function TierBadge({ tier }: { tier?: string | null }) {
   if (!tier) return <span className="text-stone-400">—</span>;
   const cls = tier === "Proven Winner" ? "bg-apple-green/15 text-ink-green"
+    : tier === "Rising Star" ? "bg-apple-green/10 text-ink-green"
+    : tier === "Fading Winner" ? "bg-apple-orange/15 text-ink-orange"
     : tier === "Hidden Gem" ? "bg-apple-purple/15 text-ink-purple"
     : tier === "Watchlist" ? "bg-apple-blue/15 text-ink-blue"
     : "bg-black/[0.06] text-stone-500";
-  return <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${cls}`}>{tier}</span>;
+  return (
+    <span title={TIER_HELP[tier as TierName]} className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${cls}`}>
+      {tier}
+    </span>
+  );
 }
 
 export function IntelDrawer({ item, onClose }: { item: IntelItem; onClose: () => void }) {
@@ -75,7 +81,7 @@ export function IntelDrawer({ item, onClose }: { item: IntelItem; onClose: () =>
               <h2 className="text-lg font-semibold tracking-tight">{item.sku_code}</h2>
               <TierBadge tier={item.tier} />
             </div>
-            <p className="mt-0.5 truncate text-sm text-stone-500">{item.master?.title || item.master?.category || "Jewellery SKU"}</p>
+            <p className="mt-0.5 truncate text-sm text-stone-500">{item.title || item.cat || "Jewellery SKU"}</p>
           </div>
           <button type="button" onClick={onClose} className={`${btnGhost} p-2`} aria-label="Close"><X size={16} /></button>
         </div>
@@ -87,7 +93,7 @@ export function IntelDrawer({ item, onClose }: { item: IntelItem; onClose: () =>
               <div>
                 <p className="text-xs text-stone-400">Category / Collection</p>
                 <p className="font-medium text-stone-900">
-                  {item.master?.category || "—"}{item.master?.collection ? ` · ${item.master.collection}` : ""}
+                  {item.cat}{item.master?.collection ? ` · ${item.master.collection}` : ""}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -95,7 +101,7 @@ export function IntelDrawer({ item, onClose }: { item: IntelItem; onClose: () =>
                   {item.effectivePrice != null ? inr.format(item.effectivePrice) : "—"}
                 </span>
                 {item.priceIsFallback && item.effectivePrice != null && (
-                  <span className="text-xs text-stone-400">(avg catalog price)</span>
+                  <span className="text-xs text-stone-400">(price at scoring time)</span>
                 )}
                 <StockLabelBadge status={item.market?.stock_status} />
               </div>
@@ -108,23 +114,39 @@ export function IntelDrawer({ item, onClose }: { item: IntelItem; onClose: () =>
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-2.5">
+          {item.tier && (
+            <p className="rounded-xl border border-black/[0.06] bg-stone-50 px-3 py-2 text-xs text-stone-600">
+              <span className="font-semibold text-stone-800">{item.tier}: </span>{TIER_HELP[item.tier]}
+            </p>
+          )}
+
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
             <div className="rounded-xl border border-black/[0.06] bg-stone-50 p-3">
-              <p className="text-[0.6875rem] uppercase tracking-wide text-stone-400">Perf Prob</p>
-              <div className="mt-1"><ProbPill value={item.perf_sell_prob} /></div>
+              <p className="text-[0.6875rem] uppercase tracking-wide text-stone-400">Winner Chance</p>
+              <div className="mt-1"><ProbPill value={item.winner_prob} /></div>
             </div>
             <div className="rounded-xl border border-black/[0.06] bg-stone-50 p-3">
-              <p className="text-[0.6875rem] uppercase tracking-wide text-stone-400">OMS Prob</p>
-              <p className="mt-1 text-base font-semibold tabular-nums">{formatPct(item.oms_sell_prob)}</p>
+              <p className="text-[0.6875rem] uppercase tracking-wide text-stone-400">Rank in {item.cat}</p>
+              <p className="mt-1 text-base font-semibold tabular-nums">
+                {item.category_rank != null ? `#${item.category_rank}` : "—"}
+                {item.category_size != null && <span className="text-xs font-normal text-stone-400"> / {item.category_size.toLocaleString("en-IN")}</span>}
+              </p>
             </div>
             <div className="rounded-xl border border-black/[0.06] bg-stone-50 p-3">
-              <p className="text-[0.6875rem] uppercase tracking-wide text-stone-400">Breakout</p>
-              <p className="mt-1 text-base font-semibold tabular-nums">{item.breakout_score != null ? Number(item.breakout_score).toFixed(1) : "—"}</p>
+              <p className="text-[0.6875rem] uppercase tracking-wide text-stone-400">Units Sold</p>
+              <p className="mt-1 text-base font-semibold tabular-nums">
+                {item.units_sold != null ? Number(item.units_sold).toLocaleString("en-IN", { maximumFractionDigits: 1 }) : "—"}
+              </p>
+            </div>
+            <div className="rounded-xl border border-black/[0.06] bg-stone-50 p-3" title="Add-to-cart rate percentile within its category">
+              <p className="text-[0.6875rem] uppercase tracking-wide text-stone-400">Cart-rate %ile</p>
+              <p className="mt-1 text-base font-semibold tabular-nums">{item.gem_score != null ? Math.round(Number(item.gem_score)) : "—"}</p>
             </div>
           </div>
 
           <div>
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-500">Top Drivers</h3>
+            <p className="mb-2 text-xs text-stone-400">↑ raises the winner chance, ↓ lowers it. ★ is why it's a Hidden Gem.</p>
             {drivers.length ? (
               <div className="flex flex-wrap gap-1.5">
                 {drivers.map((d, i) => (

@@ -91,7 +91,7 @@ export function UploadPanel({
           <div>
             <span className="text-[0.9375rem] font-semibold text-stone-900">Data Upload &amp; Model Refresh</span>
             <span className="ml-2 text-xs text-stone-500">
-              {batches.length ? `${batches.length} batch${batches.length === 1 ? "" : "es"} recorded` : "Upload Web, OMS, Perf & Master CSVs"}
+              {batches.length ? `${batches.length} batch${batches.length === 1 ? "" : "es"} recorded` : "Upload Web, App, OMS, Perf & Master CSVs"}
             </span>
           </div>
         </button>
@@ -112,6 +112,7 @@ export function UploadPanel({
                 else if (granularity === "catalog") setGranularity("monthly");
               }}>
                 <option value="web">Web (GA4)</option>
+                <option value="app">App (GA4)</option>
                 <option value="oms">OMS</option>
                 <option value="perf">Perf (Campaigns)</option>
                 <option value="master">Master Catalog</option>
@@ -137,7 +138,7 @@ export function UploadPanel({
 
           <div className="flex flex-wrap items-center gap-3">
             <FilePicker className="min-w-[18rem] flex-1" files={file ? [file] : []} onFiles={(f) => setFile(f[0] ?? null)} accept=".csv" disabled={uploading}
-              label="Choose a CSV file" hint="Web, OMS, Perf, or Master CSV. Stored safely in R2." />
+              label="Choose a CSV file" hint="Web, App, OMS, Perf, or Master CSV. Use the same period dates for every file of a month." />
             <button type="button" className={btnGhost} disabled={uploading || !file} onClick={onUploadCsv}>
               <Upload size={14} /> {uploading ? "Uploading…" : "Upload CSV"}
             </button>

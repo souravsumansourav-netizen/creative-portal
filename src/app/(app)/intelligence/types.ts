@@ -1,9 +1,19 @@
-export type SourceType = "web" | "oms" | "perf" | "master";
+export type SourceType = "web" | "app" | "oms" | "perf" | "master";
 export type Granularity = "monthly" | "weekly" | "catalog";
-export type TierName = "Proven Winner" | "Hidden Gem" | "Watchlist" | "Low Potential";
-export type TierTab = "all" | "hidden_gems" | "proven_winners" | "restock_alerts" | "in_stock";
+export type TierName = "Proven Winner" | "Rising Star" | "Fading Winner" | "Hidden Gem" | "Watchlist" | "Low Potential";
+export type TierTab = "all" | "proven_winners" | "hidden_gems" | "watchlist" | "restock_alerts" | "in_stock";
 export type PriceBand = "all" | "under_25k" | "25k_50k" | "50k_100k" | "over_100k";
-export type SortKey = "breakout" | "perf" | "oms" | "price";
+export type SortKey = "by_category" | "winner" | "units" | "gem" | "price";
+
+/** Plain-language meaning of each tier, shown in tooltips and the drawer. */
+export const TIER_HELP: Record<TierName, string> = {
+  "Proven Winner": "Sold in the top 20% of its category this period (and at least 2 units).",
+  "Rising Star": "Not a winner yet, but likely to become one next period (needs 3 months of data).",
+  "Fading Winner": "Won last period but is likely to drop (needs 3 months of data).",
+  "Hidden Gem": "Add-to-cart rate in the top 10% of its category on below-median traffic: shoppers want it, too few see it.",
+  Watchlist: "Not a winner this period, but the model says it looks like one (winner chance 30%+).",
+  "Low Potential": "None of the above.",
+};
 
 export type UploadBatch = {
   id: string;
@@ -40,6 +50,13 @@ export type MarketRow = {
 
 export type ScoreRow = {
   sku_code: string;
+  category: string | null;
+  winner_prob: number | null;
+  category_rank: number | null;
+  category_size: number | null;
+  category_pct: number | null;
+  units_sold: number | null;
+  gem_score: number | null;
   perf_sell_prob: number | null;
   oms_sell_prob: number | null;
   breakout_score: number | null;
@@ -53,6 +70,10 @@ export type ScoreRow = {
 };
 
 export type IntelItem = ScoreRow & {
+  /** Score category, falling back to the catalog category. */
+  cat: string;
+  /** Catalog title, falling back to the name seen in web/app/OMS data. */
+  title: string | null;
   master?: MasterAttr;
   market?: MarketRow;
   effectivePrice: number | null;

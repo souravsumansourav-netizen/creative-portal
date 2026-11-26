@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { ChevronDown, ExternalLink, Search, Sparkles } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { rpc } from "@/lib/api";
@@ -14,15 +14,50 @@ import {
   formatPct,
   inr,
   normalizeTags,
+  TIER_HELP,
   type IntelItem,
   type MarketRow,
   type MasterAttr,
   type PriceBand,
   type ScoreRow,
   type SortKey,
+  type TierName,
   type TierTab,
   type UploadBatch,
 } from "./types";
+
+const PAGE = 1000; // Supabase caps a single select at 1,000 rows
+
+async function fetchAllScores(): Promise<ScoreRow[]> {
+  const sb = supabaseBrowser();
+  const out: ScoreRow[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await sb
+      .from("sku_intelligence_scores")
+      .select("*")
+      .order("sku_code", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    out.push(...((data ?? []) as ScoreRow[]));
+    if (!data || data.length < PAGE) return out;
+  }
+}
+
+const TOP_N_OPTIONS = [10, 25, 50, 0] as const; // 0 = all
+
+const SORT_LABEL: Record<SortKey, string> = {
+  by_category: "Best per category",
+  winner: "Winner chance",
+  units: "Units sold",
+  gem: "Hidden Gem strength",
+  price: "Price",
+};
+
+const TAB_TIER: Record<"proven_winners" | "hidden_gems" | "watchlist", TierName> = {
+  proven_winners: "Proven Winner",
+  hidden_gems: "Hidden Gem",
+  watchlist: "Watchlist",
+};
 
 const PRICE_BANDS: { key: PriceBand; label: string; min?: number; max?: number }[] = [
   { key: "all", label: "All" },
@@ -35,12 +70,18 @@ const PRICE_BANDS: { key: PriceBand; label: string; min?: number; max?: number }
 async function fetchInChunks<T>(table: string, cols: string, codes: string[]): Promise<T[]> {
   if (!codes.length) return [];
   const sb = supabaseBrowser();
+  const chunks: string[][] = [];
+  for (let i = 0; i < codes.length; i += 200) chunks.push(codes.slice(i, i + 200));
   const out: T[] = [];
-  for (let i = 0; i < codes.length; i += 200) {
-    const chunk = codes.slice(i, i + 200);
-    const { data, error } = await sb.from(table).select(cols).in("sku_code", chunk);
-    if (error) throw error;
-    if (data) out.push(...(data as T[]));
+  // A few requests at a time: ~13k SKUs is ~65 chunks per table.
+  for (let i = 0; i < chunks.length; i += 6) {
+    const results = await Promise.all(
+      chunks.slice(i, i + 6).map((chunk) => sb.from(table).select(cols).in("sku_code", chunk)),
+    );
+    for (const { data, error } of results) {
+      if (error) throw error;
+      if (data) out.push(...(data as T[]));
+    }
   }
   return out;
 }
@@ -59,7 +100,8 @@ export default function IntelligencePage() {
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [query, setQuery] = useState("");
-  const [sortBy, setSortBy] = useState<SortKey>("breakout");
+  const [sortBy, setSortBy] = useState<SortKey>("by_category");
+  const [topN, setTopN] = useState<(typeof TOP_N_OPTIONS)[number]>(10);
 
   // selection & drawer
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -70,15 +112,13 @@ export default function IntelligencePage() {
 
   const { loading, error: loadError, reload } = useLiveData(async () => {
     const sb = supabaseBrowser();
-    const [bRes, sRes] = await Promise.all([
+    const [bRes, scores] = await Promise.all([
       sb.from("intel_upload_batches").select("*").order("created_at", { ascending: false }).limit(30),
-      sb.from("sku_intelligence_scores").select("*").order("breakout_score", { ascending: false }),
+      fetchAllScores(),
     ]);
     if (bRes.error) throw bRes.error;
-    if (sRes.error) throw sRes.error;
     setBatches((bRes.data ?? []) as UploadBatch[]);
 
-    const scores = (sRes.data ?? []) as ScoreRow[];
     const codes = [...new Set(scores.map((s) => s.sku_code.trim().toUpperCase()).filter(Boolean))];
     const [masters, markets] = await Promise.all([
       fetchInChunks<MasterAttr>("sku_master_attributes", "sku_code, title, category, collection, design_tags, image_url", codes),
@@ -92,12 +132,16 @@ export default function IntelligencePage() {
       const code = s.sku_code.toUpperCase();
       const master = masterMap.get(code);
       const market = marketMap.get(code);
-      const snapPrice = s.feature_snapshot?.avg_price != null ? Number(s.feature_snapshot.avg_price) : null;
+      const snap = s.feature_snapshot ?? {};
+      const snapRaw = snap.live_price ?? snap.avg_price;
+      const snapPrice = snapRaw != null ? Number(snapRaw) : null;
       const livePrice = market?.price != null ? Number(market.price) : null;
       const effectivePrice = livePrice ?? (snapPrice != null && !Number.isNaN(snapPrice) ? snapPrice : null);
       const rawTags = (s.design_tags && Object.keys(s.design_tags).length ? s.design_tags : master?.design_tags) ?? {};
       return {
         ...s,
+        cat: s.category || master?.category || "Other",
+        title: master?.title || (typeof snap.product_name === "string" ? snap.product_name : null),
         master,
         market,
         effectivePrice,
@@ -108,10 +152,12 @@ export default function IntelligencePage() {
     setItems(merged);
   }, ["sku_intelligence_scores", "intel_upload_batches", "sku_market_data"]);
 
-  const categories = useMemo(
-    () => [...new Set(items.map((i) => i.master?.category).filter((c): c is string => !!c))].sort(),
-    [items],
-  );
+  // Categories ordered by size, so the biggest categories lead the grouped view.
+  const categories = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const it of items) counts.set(it.cat, (counts.get(it.cat) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c);
+  }, [items]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -119,52 +165,86 @@ export default function IntelligencePage() {
     const minVal = minPrice.trim() !== "" ? Number(minPrice) : band?.min;
     const maxVal = maxPrice.trim() !== "" ? Number(maxPrice) : band?.max;
 
+    const catOrder = new Map(categories.map((c, i) => [c, i]));
     return items
       .filter((it) => {
         if (tierTab === "hidden_gems" && it.tier !== "Hidden Gem") return false;
         if (tierTab === "proven_winners" && it.tier !== "Proven Winner") return false;
+        if (tierTab === "watchlist" && it.tier !== "Watchlist") return false;
         if (tierTab === "restock_alerts") {
-          const highProb = (it.perf_sell_prob ?? 0) >= 0.5 || (it.oms_sell_prob ?? 0) >= 0.5 || (it.breakout_score ?? 0) >= 60;
-          if (it.market?.stock_status !== "out_of_stock" || !highProb) return false;
+          // Out of stock, and either already a winner or likely to be one.
+          const wanted = it.tier === "Proven Winner" || (it.winner_prob ?? 0) >= 0.5;
+          if (it.market?.stock_status !== "out_of_stock" || !wanted) return false;
         }
         if (tierTab === "in_stock") {
           const st = it.market?.stock_status;
           if (st !== "in_stock_online" && st !== "in_stock_store_only") return false;
         }
-        if (selCats.size > 0 && !selCats.has(it.master?.category ?? "")) return false;
+        if (selCats.size > 0 && !selCats.has(it.cat)) return false;
         if (minVal != null && !Number.isNaN(minVal) && (it.effectivePrice == null || it.effectivePrice < minVal)) return false;
         if (maxVal != null && !Number.isNaN(maxVal) && (it.effectivePrice == null || it.effectivePrice > maxVal)) return false;
         if (q) {
-          const hit = it.sku_code.toLowerCase().includes(q) || (it.master?.title ?? "").toLowerCase().includes(q);
+          const hit = it.sku_code.toLowerCase().includes(q) || (it.title ?? "").toLowerCase().includes(q);
           if (!hit) return false;
         }
         return true;
       })
       .sort((a, b) => {
-        if (sortBy === "perf") return (b.perf_sell_prob ?? -1) - (a.perf_sell_prob ?? -1);
-        if (sortBy === "oms") return (b.oms_sell_prob ?? -1) - (a.oms_sell_prob ?? -1);
+        if (sortBy === "winner") return (b.winner_prob ?? -1) - (a.winner_prob ?? -1);
+        if (sortBy === "units") return (b.units_sold ?? -1) - (a.units_sold ?? -1);
+        if (sortBy === "gem") return (b.gem_score ?? -1) - (a.gem_score ?? -1);
         if (sortBy === "price") return (b.effectivePrice ?? -1) - (a.effectivePrice ?? -1);
-        return (b.breakout_score ?? -1) - (a.breakout_score ?? -1);
+        // by_category: biggest categories first, then rank within the category
+        return (catOrder.get(a.cat) ?? 999) - (catOrder.get(b.cat) ?? 999)
+          || (a.category_rank ?? 1e9) - (b.category_rank ?? 1e9);
       });
-  }, [items, tierTab, selCats, priceBand, minPrice, maxPrice, query, sortBy]);
+  }, [items, categories, tierTab, selCats, priceBand, minPrice, maxPrice, query, sortBy]);
+
+  const tierCounts = useMemo(() => {
+    const out: Partial<Record<TierName, number>> = {};
+    for (const it of items) if (it.tier) out[it.tier] = (out[it.tier] ?? 0) + 1;
+    return out;
+  }, [items]);
+
+  const catStats = useMemo(() => {
+    const out = new Map<string, { size: number; winners: number }>();
+    for (const it of items) {
+      const s = out.get(it.cat) ?? { size: 0, winners: 0 };
+      s.size += 1;
+      if (it.tier === "Proven Winner") s.winners += 1;
+      out.set(it.cat, s);
+    }
+    return out;
+  }, [items]);
+
+  // In the grouped view, keep only the top N rows of each category (after filters).
+  const visible = useMemo(() => {
+    if (sortBy !== "by_category" || topN === 0) return filtered;
+    const seen = new Map<string, number>();
+    return filtered.filter((it) => {
+      const n = (seen.get(it.cat) ?? 0) + 1;
+      seen.set(it.cat, n);
+      return n <= topN;
+    });
+  }, [filtered, sortBy, topN]);
 
   const designInsights = useMemo(() => {
-    const map = new Map<string, { axis: string; tag: string; count: number; perfSum: number; perfN: number; brkSum: number; brkN: number }>();
+    const map = new Map<string, { axis: string; tag: string; count: number; probSum: number; probN: number; winners: number }>();
     for (const it of items) {
       for (const [axis, tags] of Object.entries(it.effectiveTags)) {
         for (const tag of tags) {
           const key = `${axis}::${tag}`;
-          const row = map.get(key) ?? { axis, tag, count: 0, perfSum: 0, perfN: 0, brkSum: 0, brkN: 0 };
+          const row = map.get(key) ?? { axis, tag, count: 0, probSum: 0, probN: 0, winners: 0 };
           row.count += 1;
-          if (it.perf_sell_prob != null) { row.perfSum += Number(it.perf_sell_prob); row.perfN += 1; }
-          if (it.breakout_score != null) { row.brkSum += Number(it.breakout_score); row.brkN += 1; }
+          if (it.winner_prob != null) { row.probSum += Number(it.winner_prob); row.probN += 1; }
+          if (it.tier === "Proven Winner") row.winners += 1;
           map.set(key, row);
         }
       }
     }
     return [...map.values()]
       .filter((r) => axisFilter === "all" || r.axis === axisFilter)
-      .sort((a, b) => b.count - a.count || (b.brkN ? b.brkSum / b.brkN : 0) - (a.brkN ? a.brkSum / a.brkN : 0));
+      .sort((a, b) => b.count - a.count || b.winners / b.count - a.winners / a.count);
   }, [items, axisFilter]);
 
   const allAxes = useMemo(() => {
@@ -256,8 +336,8 @@ export default function IntelligencePage() {
                     <th className="px-4 py-2.5 font-medium">Axis</th>
                     <th className="px-4 py-2.5 font-medium">Tag</th>
                     <th className="px-4 py-2.5 text-right font-medium">SKU Count</th>
-                    <th className="px-4 py-2.5 text-right font-medium">Avg Perf Prob %</th>
-                    <th className="px-4 py-2.5 text-right font-medium">Avg Breakout Score</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Avg Winner Chance</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Proven Winners</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -266,8 +346,10 @@ export default function IntelligencePage() {
                       <td className="px-4 py-2.5 capitalize text-stone-500">{r.axis.replace("_", " ")}</td>
                       <td className="px-4 py-2.5 font-medium text-stone-900">{r.tag}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums">{r.count}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">{r.perfN ? formatPct(r.perfSum / r.perfN) : "—"}</td>
-                      <td className="px-4 py-2.5 text-right font-medium tabular-nums">{r.brkN ? (r.brkSum / r.brkN).toFixed(1) : "—"}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">{r.probN ? formatPct(r.probSum / r.probN) : "—"}</td>
+                      <td className="px-4 py-2.5 text-right font-medium tabular-nums">
+                        {r.winners} <span className="font-normal text-stone-400">({formatPct(r.winners / r.count)})</span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -284,8 +366,9 @@ export default function IntelligencePage() {
                 onChange={setTierTab}
                 options={[
                   { value: "all" as const, label: "All Jewellery" },
-                  { value: "hidden_gems" as const, label: "Hidden Gems" },
-                  { value: "proven_winners" as const, label: "Proven Winners" },
+                  { value: "proven_winners" as const, label: "Proven Winners", badge: tierCounts["Proven Winner"] },
+                  { value: "hidden_gems" as const, label: "Hidden Gems", badge: tierCounts["Hidden Gem"] },
+                  { value: "watchlist" as const, label: "Watchlist", badge: tierCounts["Watchlist"] },
                   { value: "restock_alerts" as const, label: "Restock Alerts" },
                   { value: "in_stock" as const, label: "In Stock Only" },
                 ]}
@@ -329,13 +412,25 @@ export default function IntelligencePage() {
               </div>
 
               <Select className={input} value={sortBy} onChange={(e) => setSortBy(e.target.value as SortKey)}
-                display={`Sort · ${sortBy === "breakout" ? "Breakout Score" : sortBy === "perf" ? "Perf Prob" : sortBy === "oms" ? "OMS Prob" : "Price"}`}>
-                <option value="breakout">Breakout Score</option>
-                <option value="perf">Perf Prob</option>
-                <option value="oms">OMS Prob</option>
-                <option value="price">Price</option>
+                display={`Sort · ${SORT_LABEL[sortBy]}`}>
+                {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => <option key={k} value={k}>{SORT_LABEL[k]}</option>)}
               </Select>
+
+              {sortBy === "by_category" && (
+                <Select className={input} value={String(topN)} onChange={(e) => setTopN(Number(e.target.value) as typeof topN)}
+                  display={topN ? `Top ${topN} per category` : "All per category"}>
+                  {TOP_N_OPTIONS.map((n) => <option key={n} value={n}>{n ? `Top ${n} per category` : "All per category"}</option>)}
+                </Select>
+              )}
             </div>
+
+            {tierTab !== "all" && tierTab !== "in_stock" && (
+              <p className="text-xs text-stone-500">
+                {tierTab === "restock_alerts"
+                  ? "Out of stock now, and either a Proven Winner or 50%+ winner chance."
+                  : TIER_HELP[TAB_TIER[tierTab]]}
+              </p>
+            )}
 
             <div className="flex flex-wrap items-center gap-2 border-t border-black/[0.05] pt-3">
               <span className="text-xs font-medium text-stone-500">Price:</span>
@@ -374,10 +469,10 @@ export default function IntelligencePage() {
                   <tr>
                     <th className="p-2.5">
                       <Checkbox
-                        checked={filtered.length > 0 && filtered.every((it) => sel.has(it.sku_code))}
+                        checked={visible.length > 0 && visible.every((it) => sel.has(it.sku_code))}
                         onChange={(e) => setSel((prev) => {
                           const next = new Set(prev);
-                          filtered.forEach((it) => (e.target.checked ? next.add(it.sku_code) : next.delete(it.sku_code)));
+                          visible.forEach((it) => (e.target.checked ? next.add(it.sku_code) : next.delete(it.sku_code)));
                           return next;
                         })}
                       />
@@ -385,19 +480,31 @@ export default function IntelligencePage() {
                     <th className="py-2.5 font-medium">Image</th>
                     <th className="px-2 py-2.5 font-medium">SKU &amp; Title</th>
                     <th className="px-2 py-2.5 font-medium">Category</th>
+                    <th className="px-2 py-2.5 font-medium" title="Rank by winner chance within its category (1 = most likely)">Rank in Category</th>
+                    <th className="px-2 py-2.5 font-medium" title="Model's chance this SKU is a top-20% seller in its category">Winner Chance</th>
+                    <th className="px-2 py-2.5 font-medium" title="max(OMS units, web + app purchases) this period">Units Sold</th>
                     <th className="px-2 py-2.5 font-medium">Live Price</th>
                     <th className="px-2 py-2.5 font-medium">Stock</th>
-                    <th className="px-2 py-2.5 font-medium">Perf Prob</th>
-                    <th className="px-2 py-2.5 font-medium">OMS Prob</th>
-                    <th className="px-2 py-2.5 font-medium">Breakout</th>
                     <th className="px-2 py-2.5 font-medium">Tier</th>
                     <th className="px-2 py-2.5 font-medium">Top Drivers</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((it) => {
+                  {visible.map((it, i) => {
                     const drivers = (it.top_drivers ?? []).slice(0, 2).map(driverLabel).filter(Boolean);
+                    const newGroup = sortBy === "by_category" && (i === 0 || visible[i - 1].cat !== it.cat);
                     return (
+                      <Fragment key={it.sku_code}>
+                      {newGroup && (
+                        <tr className="border-t border-black/[0.08] bg-stone-50">
+                          <td colSpan={12} className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-stone-600">
+                            {it.cat}
+                            <span className="ml-2 font-normal normal-case tracking-normal text-stone-400">
+                              {catStats.get(it.cat)?.size ?? 0} SKUs · {catStats.get(it.cat)?.winners ?? 0} proven winners
+                            </span>
+                          </td>
+                        </tr>
+                      )}
                       <tr
                         key={it.sku_code}
                         onClick={() => setActiveSku(it)}
@@ -419,23 +526,28 @@ export default function IntelligencePage() {
                               </a>
                             )}
                           </div>
-                          {it.master?.title && <p className="truncate text-xs text-stone-500" title={it.master.title}>{it.master.title}</p>}
+                          {it.title && <p className="truncate text-xs text-stone-500" title={it.title}>{it.title}</p>}
                         </td>
-                        <td className="px-2 py-2 text-stone-700">{it.master?.category || "—"}</td>
+                        <td className="px-2 py-2 text-stone-700">{it.cat}</td>
+                        <td className="px-2 py-2 tabular-nums text-stone-700">
+                          {it.category_rank != null ? (
+                            <><span className="font-semibold text-stone-900">#{it.category_rank}</span>
+                              <span className="text-xs text-stone-400"> / {it.category_size?.toLocaleString("en-IN")}</span></>
+                          ) : "—"}
+                        </td>
+                        <td className="px-2 py-2"><ProbPill value={it.winner_prob} /></td>
+                        <td className="px-2 py-2 tabular-nums text-stone-700">
+                          {it.units_sold != null ? Number(it.units_sold).toLocaleString("en-IN", { maximumFractionDigits: 1 }) : "—"}
+                        </td>
                         <td className="px-2 py-2 tabular-nums">
                           {it.effectivePrice != null ? (
                             <span className={it.priceIsFallback ? "text-stone-500" : "font-medium text-stone-900"}
-                              title={it.priceIsFallback ? "Avg catalog price (not yet scraped)" : "Live scraped price"}>
+                              title={it.priceIsFallback ? "Snapshot price at scoring time (not yet scraped)" : "Live scraped price"}>
                               {inr.format(it.effectivePrice)}
                             </span>
                           ) : <span className="text-stone-400">—</span>}
                         </td>
                         <td className="px-2 py-2"><StockLabelBadge status={it.market?.stock_status} /></td>
-                        <td className="px-2 py-2"><ProbPill value={it.perf_sell_prob} /></td>
-                        <td className="px-2 py-2 tabular-nums text-stone-700">{formatPct(it.oms_sell_prob)}</td>
-                        <td className="px-2 py-2 font-semibold tabular-nums text-stone-900">
-                          {it.breakout_score != null ? Number(it.breakout_score).toFixed(1) : "—"}
-                        </td>
                         <td className="px-2 py-2"><TierBadge tier={it.tier} /></td>
                         <td className="px-2 py-2">
                           <div className="flex flex-wrap gap-1">
@@ -447,10 +559,17 @@ export default function IntelligencePage() {
                           </div>
                         </td>
                       </tr>
+                      </Fragment>
                     );
                   })}
                 </tbody>
               </table>
+              {visible.length < filtered.length && (
+                <p className="border-t border-black/[0.05] px-4 py-2.5 text-xs text-stone-500">
+                  Showing top {topN} of each category ({visible.length.toLocaleString("en-IN")} of {filtered.length.toLocaleString("en-IN")} SKUs).
+                  Choose “All per category” or pick a category to see more.
+                </p>
+              )}
             </Card>
           )}
         </>
